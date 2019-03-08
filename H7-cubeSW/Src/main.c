@@ -4,35 +4,45 @@
   * @file           : main.c
   * @brief          : Main program body
   ******************************************************************************
-  ** This notice applies to any and all portions of this file
+  * This notice applies to any and all portions of this file
   * that are not between comment pairs USER CODE BEGIN and
   * USER CODE END. Other portions of this file, whether 
   * inserted by the user or by software development tools
   * are owned by their respective copyright owners.
   *
-  * COPYRIGHT(c) 2018 STMicroelectronics
+  * Copyright (c) 2018 STMicroelectronics International N.V. 
+  * All rights reserved.
   *
-  * Redistribution and use in source and binary forms, with or without modification,
-  * are permitted provided that the following conditions are met:
-  *   1. Redistributions of source code must retain the above copyright notice,
-  *      this list of conditions and the following disclaimer.
-  *   2. Redistributions in binary form must reproduce the above copyright notice,
-  *      this list of conditions and the following disclaimer in the documentation
-  *      and/or other materials provided with the distribution.
-  *   3. Neither the name of STMicroelectronics nor the names of its contributors
-  *      may be used to endorse or promote products derived from this software
-  *      without specific prior written permission.
+  * Redistribution and use in source and binary forms, with or without 
+  * modification, are permitted, provided that the following conditions are met:
   *
-  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-  * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-  * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  * 1. Redistribution of source code must retain the above copyright notice, 
+  *    this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright notice,
+  *    this list of conditions and the following disclaimer in the documentation
+  *    and/or other materials provided with the distribution.
+  * 3. Neither the name of STMicroelectronics nor the names of other 
+  *    contributors to this software may be used to endorse or promote products 
+  *    derived from this software without specific written permission.
+  * 4. This software, including modifications and/or derivative works of this 
+  *    software, must execute solely and exclusively on microcontroller or
+  *    microprocessor devices manufactured by or for STMicroelectronics.
+  * 5. Redistribution and use of this software other than as permitted under 
+  *    this license is void and will automatically terminate your rights under 
+  *    this license. 
+  *
+  * THIS SOFTWARE IS PROVIDED BY STMICROELECTRONICS AND CONTRIBUTORS "AS IS" 
+  * AND ANY EXPRESS, IMPLIED OR STATUTORY WARRANTIES, INCLUDING, BUT NOT 
+  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
+  * PARTICULAR PURPOSE AND NON-INFRINGEMENT OF THIRD PARTY INTELLECTUAL PROPERTY
+  * RIGHTS ARE DISCLAIMED TO THE FULLEST EXTENT PERMITTED BY LAW. IN NO EVENT 
+  * SHALL STMICROELECTRONICS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
+  * OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF 
+  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
+  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   *
   ******************************************************************************
   */
@@ -40,13 +50,17 @@
 #include "main.h"
 #include "stm32h7xx_hal.h"
 #include "adc.h"
+#include "bdma.h"
 #include "dma.h"
 #include "i2c.h"
 #include "quadspi.h"
 #include "rng.h"
 #include "sai.h"
 #include "spi.h"
+#include "tim.h"
+#include "usb_host.h"
 #include "gpio.h"
+#include "lcd.h"
 
 /* USER CODE BEGIN Includes */
 #include "audiostream.h"
@@ -58,22 +72,17 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-//register unsigned int apsr __asm("cpacr");
-
-//FPU->CPACR |= (1<<24);
-
-
-#define NUM_ADC_CHANNELS 12
-ALIGN_32BYTES (uint16_t myADC[NUM_ADC_CHANNELS] __ATTR_RAM_D2);
+#define NUM_ADC_CHANNELS 5
+uint16_t myADC[NUM_ADC_CHANNELS] __ATTR_RAM_D2;
 
 uint32_t counter = 0;
-int pinValue = 0;
 
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -82,6 +91,38 @@ void MPU_Conf(void);
 
 /* USER CODE BEGIN 0 */
 
+int isButtonOneDown, isButtonTwoDown;
+
+static void buttonOneDown(void)
+{
+	isButtonOneDown = 1;
+	ftMode = FTFeedback;
+
+	LCD_setCursor(&hi2c2, 0x40);
+	LCD_sendChar(&hi2c2, 'F');
+	LCD_sendChar(&hi2c2, 'B');
+}
+
+static void buttonOneUp(void)
+{
+	isButtonOneDown = 0;
+}
+
+static void buttonTwoDown(void)
+{
+	isButtonTwoDown = 1;
+	ftMode = FTSynthesisOne;
+
+	LCD_setCursor(&hi2c2, 0x40);
+	LCD_sendChar(&hi2c2, 'S');
+	LCD_sendChar(&hi2c2, '1');
+}
+
+static void buttonTwoUp(void)
+{
+	isButtonTwoDown = 0;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -89,10 +130,14 @@ void MPU_Conf(void);
   *
   * @retval None
   */
+
+
 int main(void)
 {
   /* USER CODE BEGIN 1 */
   MPU_Conf();
+
+  SystemInit();
   /* USER CODE END 1 */
 
   /* Enable I-Cache-------------------------------------------------------------*/
@@ -120,14 +165,20 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  //MX_BDMA_Init();
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_I2C2_Init();
-  MX_QUADSPI_Init();
+  //MX_QUADSPI_Init();
   MX_RNG_Init();
   MX_SAI1_Init();
-  MX_SPI4_Init();
+
+  //MX_SPI4_Init();
+ // MX_I2C4_Init();
+
   /* USER CODE BEGIN 2 */
+
+
 
 
   // this code sets the processor to treat denormal numbers (very tiny floats) as zero to improve performance.
@@ -135,17 +186,20 @@ int main(void)
   tempFPURegisterVal = (1<<24); // set the FTZ (flush-to-zero) bit in the FPU control register
   __set_FPSCR(tempFPURegisterVal);
 
-
 	if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
 	{
 		Error_Handler();
 
 	}
 	audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
-	
-	
-	
-	
+
+	HAL_Delay(1000);
+	LCD_init(&hi2c2);
+
+
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //red LED 1
+
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET); //red LED 2
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -153,23 +207,59 @@ int main(void)
   while (1)
   {
 
-		 /*
-	  if (counter > 10000000)
-		{
-			if (pinValue == 0)
-			{
-				//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
-				pinValue = 1;
-			}
-			else
-			{
-				//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
-				pinValue = 0;
-			}
-			counter = 0;
-		}
-		counter++;
-		*/
+	  //ADC values are =
+	  // [0] = joystick
+	  // [1] = knob
+	  // [2] = pedal
+	  // [3] = breath
+	  // [4] = slide
+
+	 HAL_Delay(10);
+	 LCD_home(&hi2c2);
+
+	 LCD_sendInteger(&hi2c2, intHarmonic, 2);
+	 LCD_sendChar(&hi2c2, ' ');
+
+	 //LCD_sendFixedFloat(&hi2c2, dist, 3, 1);
+
+	 //LCD_sendInteger(&hi2c2, myADC[1], 5);
+	 //button1
+	if (!HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_13))
+	{
+		if (!isButtonOneDown)	buttonOneDown();
+		LCD_sendChar(&hi2c2, '1');
+	}
+	else
+	{
+		LCD_sendChar(&hi2c2, ' ');
+		if (isButtonOneDown) 	buttonOneUp();
+	}
+
+
+	//button2
+	if (!HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7))
+	{
+		if (!isButtonTwoDown)	buttonTwoDown();
+		LCD_sendChar(&hi2c2, '2');
+	}
+	else
+	{
+		LCD_sendChar(&hi2c2, ' ');
+		if (isButtonTwoDown)	buttonTwoUp();
+	}
+
+	//P button
+	if (!HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_9))
+	{
+		LCD_sendChar(&hi2c2, 'P');
+		//if (!isPresetButtonDown) 	presetButtonDown();
+	}
+	else
+	{
+		LCD_sendChar(&hi2c2, ' ');
+		//if (isPresetButtonDown)		presetButtonUp();
+	}
+
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
@@ -249,7 +339,8 @@ void SystemClock_Config(void)
 
   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RNG|RCC_PERIPHCLK_SPI4
                               |RCC_PERIPHCLK_SAI1|RCC_PERIPHCLK_I2C2
-                              |RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_QSPI
+                              |RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_I2C4
+                              |RCC_PERIPHCLK_USB|RCC_PERIPHCLK_QSPI
                               |RCC_PERIPHCLK_CKPER;
   PeriphClkInitStruct.PLL2.PLL2M = 25;
   PeriphClkInitStruct.PLL2.PLL2N = 344;
@@ -259,12 +350,22 @@ void SystemClock_Config(void)
   PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_0;
   PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
   PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
+  PeriphClkInitStruct.PLL3.PLL3M = 25;
+  PeriphClkInitStruct.PLL3.PLL3N = 192;
+  PeriphClkInitStruct.PLL3.PLL3P = 4;
+  PeriphClkInitStruct.PLL3.PLL3Q = 4;
+  PeriphClkInitStruct.PLL3.PLL3R = 2;
+  PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_0;
+  PeriphClkInitStruct.PLL3.PLL3VCOSEL = RCC_PLL3VCOWIDE;
+  PeriphClkInitStruct.PLL3.PLL3FRACN = 0;
   PeriphClkInitStruct.QspiClockSelection = RCC_QSPICLKSOURCE_D1HCLK;
   PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
   PeriphClkInitStruct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
   PeriphClkInitStruct.Spi45ClockSelection = RCC_SPI45CLKSOURCE_D2PCLK1;
   PeriphClkInitStruct.RngClockSelection = RCC_RNGCLKSOURCE_HSI48;
   PeriphClkInitStruct.I2c123ClockSelection = RCC_I2C123CLKSOURCE_D2PCLK1;
+  PeriphClkInitStruct.UsbClockSelection = RCC_USBCLKSOURCE_PLL3;
+  PeriphClkInitStruct.I2c4ClockSelection = RCC_I2C4CLKSOURCE_D3PCLK1;
   PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_CLKP;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
@@ -280,7 +381,7 @@ void SystemClock_Config(void)
   HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
   /* SysTick_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(SysTick_IRQn, 2, 0);
+  HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
 /* USER CODE BEGIN 4 */
@@ -294,10 +395,6 @@ float randomNumber(void) {
 	return num;
 }
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
-{
-	//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
-}
 
 
 void MPU_Conf(void)
@@ -325,10 +422,10 @@ void MPU_Conf(void)
 	  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
 
 	  //AN4838
-	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-	  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
+	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+	  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
 	  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-	  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+	  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
 
 	  //Shared Device
 //	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
@@ -342,10 +439,12 @@ void MPU_Conf(void)
 	  MPU_InitStruct.SubRegionDisable = 0x00;
 
 
-	  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+	  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
 
 
 	  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+
 
 
 	  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
@@ -364,6 +463,7 @@ void _Error_Handler(char *file, int line)
   /* User can add his own implementation to report the HAL error return state */
   while(1) 
   {
+
   }
   /* USER CODE END Error_Handler_Debug */
 }

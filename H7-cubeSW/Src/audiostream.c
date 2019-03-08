@@ -3,62 +3,130 @@
 #include "main.h"
 #include "codec.h"
 
-#define AUDIO_FRAME_SIZE     32
-#define HALF_BUFFER_SIZE      AUDIO_FRAME_SIZE * 2 //number of samples per half of the "double-buffer" (twice the audio frame size because there are interleaved samples for both left and right channels)
-#define AUDIO_BUFFER_SIZE     AUDIO_FRAME_SIZE * 4 //number of samples in the whole data structure (four times the audio frame size because of stereo and also double-buffering/ping-ponging)
+#define ADCJoyY 0
+#define ADCKnob 1
+#define ADCPedal 2
+#define ADCBreath 3
+#define ADCSlide 4
+
+#define NUM_HARMONICS 16.0f
+
+#define ACOUSTIC_DELAY				132
 
 // align is to make sure they are lined up with the data boundaries of the cache 
 // at(0x3....) is to put them in the D2 domain of SRAM where the DMA can access them
 // (otherwise the TX times out because the DMA can't see the data location) -JS
 
 
-
-ALIGN_32BYTES (int16_t audioOutBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2);
-ALIGN_32BYTES (int16_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2);
-
-
-int16_t inBuffer[HALF_BUFFER_SIZE];
-int16_t outBuffer[HALF_BUFFER_SIZE];
+int32_t audioOutBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
+int32_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 
 uint16_t* adcVals;
 
-uint8_t buttonAPressed = 0;
-
 float sample = 0.0f;
 
-float adcx[8];
+float fundamental_hz = 58.27;
+float fundamental_cm;
+float fundamental_m = 2.943195469366741f;
+float inv_fundamental_m;
+float cutoff_offset;
+long long click_counter = 0;
 
-void audioFrame(uint16_t buffer_offset);
-float audioTickL(float audioIn); 
-float audioTickR(float audioIn);
-void buttonCheck(void);
 
-#define NUM_RAMP N_RAMP
+const int SYSTEM_DELAY = 2*AUDIO_FRAME_SIZE + ACOUSTIC_DELAY;
 
-tCompressor* compressor;
-
-tRamp* ramp[NUM_RAMP];
-
-tNeuron* neuron;
-
-typedef enum _NeuronParam
-{
-	TIMESTEP=0,CURRENT,SODIUM_INACT,SODIUM_ACT,POTASSIUM,CAPACITANCE,V1,V3,NUMPARAMS
-} NeuronParam;
+float slideLengthPreRamp;
 
 HAL_StatusTypeDef transmit_status;
 HAL_StatusTypeDef receive_status;
+
+float LN2;
+float amp_mult = 0.75f;
+
+float valPerM;
+float mPerVal;
+
+
+tSawtooth osc;
+tRamp adc[5];
+tRamp slideRamp;
+tRamp finalFreqRamp;
+
+tSVF filter1;
+tSVF filter2;
+
+tCycle sine;
+
+tRamp qRamp;
+
+tRamp correctionRamp;
+tDelayL correctionDelay;
+
+tCompressor compressor;
+
+float breath_baseline = 0.0f;
+float breath_mult = 0.0f;
+
+uint16_t knobValue;
+
+uint16_t slideValue;
+
+float slideLengthDiff = 0;
+float slideLength = 0;
+
+float fundamental = 0.0f;
+float customFundamental = 48.9994294977f;
+float position = 0.f;
+float firstPositionValue = 0.f;
+
+
+float harmonicHysteresis = 0.6f;
+
+
+float knobValueToUse = 0.0f;
+
+float floatHarmonic, floatPeak, intPeak, mix;
+float intHarmonic;
+
+int flip = 1;
+int envTimeout;
+
+
+FTMode ftMode = FTFeedback;
+float val;
+
+float breath = 0.0f;
+float rampedBreath = 0.0f;
+
+float slide_tune = 1.0f;
+
+int hysteresisKnob = 0;
+int hysteresisAmount = 512;
+
+int octave = 3;
+float octaveTransp[7] = { 0.125f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f};
+
+float slidePositions[8] = {0.0f, 0.09f, 0.17f, 0.27f, 0.34f, 0.39f, 0.47f, 0.7f};
+float slideLengthM = 0.0f;
+float slideLengthChange = 0.0f;
+float oldSlideLengthM = 0.0f;
+float newTestDelay = 0.0f;
+float oldIntHarmonic = 0.0f;
 
 typedef enum BOOL {
 	FALSE = 0,
 	TRUE
 } BOOL;
 
+float audioTickSynth(float audioIn);
+float audioTickFeedback(float audioIn);
+
+
 void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTypeDef* hsaiIn, RNG_HandleTypeDef* hrand, uint16_t* myADCArray)
 { 
 	// Initialize the audio library. OOPS.
-	OOPSInit(SAMPLE_RATE, &randomNumber);
-	
+	LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, &randomNumber);
+
 	//now to send all the necessary messages to the codec
 	AudioCodec_init(hi2c);
 
@@ -66,264 +134,285 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 
 	adcVals = myADCArray;
 
-	neuron = tNeuronInit();
+	tCycle_init(&sine);
+	tCycle_setFreq(&sine, 220.0f);
 
-	for (int i = 0; i < NUM_RAMP; i++)
-	{
-		ramp[i] = tRampInit(12.0f, 1);
-	}
+	tSawtooth_init(&osc);
+	tSawtooth_setFreq(&osc, 200.f);
+
+	tRamp_init(&correctionRamp, 10, 1);
+	// 16000 was max delay length in OOPS, can change this once we start using this with the fbt
+	tDelayL_init(&correctionDelay, 0, 16000);
+
+	tRamp_init(&qRamp, 10, 1);
+
+	tRamp_init(&adc[ADCJoyY], 18, 1);
+	tRamp_init(&adc[ADCKnob], 5, 1);
+	tRamp_init(&adc[ADCPedal], 18, 1);
+	tRamp_init(&adc[ADCBreath], 1, 1);
+	tRamp_init(&adc[ADCSlide], 20, AUDIO_FRAME_SIZE);
 
 	/*
 	compressor = tCompressorInit();
-	compressor->M = 1.0f;
-	compressor->T = 0.0f;
-	compressor->tauAttack = 25.0f;
-	compressor->tauRelease = 250.0f;
-	compressor->R = 12.0f;
-	compressor->W = 6.0f;
-*/
-	compressor = tCompressorInit();
-	compressor->M = 0.0f;
-	compressor->T = -1.0f;
-	compressor->tauAttack = 20.0f;
-	compressor->tauRelease = 250.0f;
-	compressor->R = 3.0f;
-	compressor->W = 6.0f;
 
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
-	// set up the I2S driver to send audio data to the codec (and retrieve input as well)	
+
+	compressor->M = 24.0f;
+	compressor->W = 24.0f;//24
+	compressor->T = -24.0f;//24
+	compressor->R = 3.f ; //3
+	compressor->tauAttack = 0.0f ;//1
+	compressor->tauRelease = 0.0f;//1
+	*/
+
+
+	tRamp_init(&slideRamp, 20, 1);
+	tRamp_init(&finalFreqRamp, 5, 1);
+
+	breath_baseline = ((adcVals[ADCBreath] * INV_TWO_TO_16) + 0.1f);
+	breath_mult = 1.0f / (1.0f-breath_baseline);
+
+	valPerM = 1430.0f;// / powf(2.0f,SLIDE_BITS);
+	mPerVal = 1.0f/valPerM;
+
+
+	// right shift 4 because our valPerM measure is originally from 12 bit data. now we are using 16 bit adc for controller input, so scaling was all off.
+	firstPositionValue = adcVals[ADCSlide] >> 4;
+	tRamp_setVal(&slideRamp, firstPositionValue);
+
+	tSVF_init(&filter1, SVFTypeBandpass, 2000.0f, 1000.0f);
+
+	// set up the I2S driver to send audio data to the codec (and retrieve input as well)
 	transmit_status = HAL_SAI_Transmit_DMA(hsaiOut, (uint8_t *)&audioOutBuffer[0], AUDIO_BUFFER_SIZE);
 	receive_status = HAL_SAI_Receive_DMA(hsaiIn, (uint8_t *)&audioInBuffer[0], AUDIO_BUFFER_SIZE);
-	
+
+	//filter2 = tSVFInit(SVFTypeBandpass, 2000.0f, 1000.0f);
 
 }
-
-float tempVal = 0.0f;
-uint16_t frameCounter = 0;
 
 void audioFrame(uint16_t buffer_offset)
 {
 	uint16_t i = 0;
-	int16_t current_sample = 0;
+	int32_t current_sample = 0;
 
-	//tRampSetDest(ramp[TIMESTEP], 1.0f / ((adcVals[8]*INV_TWO_TO_16 * 128.0f) * 2.0f + 1.0f));
-	//tNeuronSetTimeStep(neuron, 1.0f / (adcVals[8]*INV_TWO_TO_16 * 128.0f * 2.0f + 1.0f));
 
-	/*
-	//tNeuronSetTimeStep(neuron, 1.0f / ((float)adcVals[0]*INV_TWO_TO_16 * 128.0f * 2.0f + 1.0f));
-	//tRampSetDest(ramp[TIMESTEP], 1.0f / ((adcx[TIMESTEP] * 128.0f) * 2.0f + 1.0f));
-	tempVal = (adcx[TIMESTEP] * 128.0f * 2.0f + 1.0f) + (adcVals[8]*INV_TWO_TO_16 * 128.0f * 2.0f + 1.0f);
-	if (tempVal < 10.0f)
+	tRamp_setDest(&adc[ADCPedal], (adcVals[ADCPedal] * INV_TWO_TO_16));
+	tRamp_setDest(&adc[ADCKnob], (adcVals[ADCKnob] * INV_TWO_TO_16));
+	tRamp_setDest(&adc[ADCJoyY], 1.0f - ((adcVals[ADCJoyY] * INV_TWO_TO_16) - 0.366f) * 3.816f);
+
+	// right shift 4 because our valPerM measure is originally from 12 bit data. now we are using 16 bit adc for controller input, so scaling was all off.
+	tRamp_setDest(&adc[ADCSlide], adcVals[ADCSlide] >> 4);
+	position = tRamp_tick(&adc[ADCSlide]);
+
+	slideLengthDiff = (position - firstPositionValue) * mPerVal * slide_tune;
+	slideLengthM = (position - firstPositionValue) * mPerVal;
+	slideLengthPreRamp = fundamental_m + slideLengthDiff;
+	tRamp_setDest(&slideRamp, slideLengthPreRamp);
+
+	if (ftMode == FTFeedback)
 	{
-		tempVal = 10.0f;
+		for (i = 0; i < (HALF_BUFFER_SIZE); i++)
+		{
+			if ((i & 1) == 0)
+			{
+				current_sample = (int32_t)(audioTickFeedback((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+			}
+
+			audioOutBuffer[buffer_offset + i] = current_sample;
+		}
 	}
-	tRampSetDest(ramp[TIMESTEP], 1.0f / tempVal);
+	else
+	{
+		for (i = 0; i < (HALF_BUFFER_SIZE); i++)
+		{
+			if ((i & 1) == 0)
+			{
+				current_sample = (int32_t)(audioTickSynth((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+			}
 
-	tempVal = (50.0f + ((adcx[CURRENT] + ((float)adcVals[9] * INV_TWO_TO_16)) * 128.0f) * 1.5f);
-	tRampSetDest(ramp[CURRENT], tempVal);
-	//tNeuronSetCurrent(neuron, 50.0f + (adcx[CURRENT] * 128.0f) * 1.5f);
+			audioOutBuffer[buffer_offset + i] = current_sample;
+		}
+	}
 
-	tRampSetDest(ramp[SODIUM_INACT], -adcx[SODIUM_INACT] + (-1 * ((float)adcVals[10])));
-	//tNeuronSetL(neuron, -adcx[SODIUM_INACT]);
-	//tRampSetDest(ramp[1], cval*2.0f);
 
-	tRampSetDest(ramp[SODIUM_ACT], 128.0f + ((adcx[SODIUM_ACT] + ((float)adcVals[11] * INV_TWO_TO_16)) * 128.0f)  * 3.0f);
-	//tNeuronSetN(neuron, 128.0f + (adcx[SODIUM_ACT] * 128.0f)  * 3.0f);
+}
 
-	tRampSetDest(ramp[POTASSIUM], adcx[POTASSIUM] * 80.0f - 20.0f);
-	//tNeuronSetK(neuron, adcx[POTASSIUM] * 80.0f - 20.0f);
+//ADC values are =
+// [0] = joystick
+// [1] = knob
+// [2] = pedal
+// [3] = breath
+// [4] = slide
 
-	tRampSetDest(ramp[CAPACITANCE], adcx[CAPACITANCE] * 2.0f + 0.01f);
-	//tNeuronSetC(neuron, adcx[CAPACITANCE] * 2.0f + 0.01);
 
-	tRampSetDest(ramp[V1], (adcx[V1] * 128.0f)*2.0f - 128.0f);
-	//tNeuronSetV1(neuron, (adcx[V1] * 128.0f)*2.0f - 128.0f);
+static void calculatePeaks(void)
+{
+	slideLength = tRamp_tick(&slideRamp);
+	float x = 12.0f * logf(slideLength / fundamental_m) * INV_LOG2;
+	fundamental = fundamental_hz * powf(2.0f, (-x * INV_TWELVE));
 
-	tRampSetDest(ramp[V3], (adcx[V3] * 128.0f)*2.0f - 128.0f);
-	//tNeuronSetV3(neuron, (adcx[V3] * 128.0f)*2.0f - 128.0f);
+	floatHarmonic = tRamp_tick(&adc[ADCJoyY]) * 2.0f - 1.0f;
+	floatHarmonic = (floatHarmonic < 0.0f) ? 1.0f : (floatHarmonic * NUM_HARMONICS + 1.0f);
 
+	if (((floatHarmonic - intHarmonic) > (harmonicHysteresis)) || ((floatHarmonic - intHarmonic) < ( -1.0f * harmonicHysteresis)))
+	{
+		intHarmonic = (uint16_t) (floatHarmonic + 0.5f);
+	}
+
+	floatPeak = fundamental * floatHarmonic * octaveTransp[octave];
+	intPeak = fundamental * intHarmonic * octaveTransp[octave];
+}
+
+float delayCor[8][16] = {{0.0f, 0.0f, 43.0f, 56.0f, 48.0f, 32.0f, 18.0f, 26.0f, 23.0f, 14.0f, 11.0f, 5.0f, 1.0f, 0.0f, 0.0f, 7.0f},
+													{0.0f, 0.0f, 24.0f, 39.0f, 41.0f, 31.0f, 17.0f, 1.0f, 104.0f, 100.0f, 93.0f, 74.0f, 4.0f, 66.0f, 3.0f, 63.0f},
+													{0.0f, 0.0f, 56.0f, 82.0f, 69.0f, 39.0f, 29.0f, 23.0f, 121.0f, 97.0f, 179.0f, 80.0f, -5.0f, 76.0f, -4.0f, 0.0f},
+													{0.0f, 0.0f, 1.0f, 18.0f, 38.0f, 20.0f, 9.0f, 123.0f, 109.0f, -1.0f, 93.0f, 69.0f, 65.0f, 140.0f, 1.0f, 67.0f},
+													{0.0f, 0.0f, 6.0f, 37.0f, 43.0f, 30.0f, 10.0f, 4.0f, 117.0f, 99.0f, 93.0f, 56.0f, 74.0f, 54.0f, 1.0f, 132.0f},
+													{0.0f, 0.0f, 159.0f, 133.0f, 117.0f, 95.0f, 56.0f, 151.0f, 120.0f, 108.0f, 104.0f, 103.0f, 103.0f, 22.0f, 87.0f, 78.0f},
+													{0.0f, 0.0f, 141.0f, 119.0f, 104.0f, 92.0f, 215.0f, 162.0f, 125.0f, 111.0f, 108.0f, 104.0f, 104.0f, 98.0f, 95.0f, 80.0f},
+													{0.0f, 0.0f, 141.0f, 119.0f, 104.0f, 92.0f, 215.0f, 162.0f, 125.0f, 111.0f, 108.0f, 104.0f, 104.0f, 98.0f, 95.0f, 80.0f}};
+
+//takes index from delayValueCorrection to calculate weight for weighted average and returns the correct delay value (don't call directly)
+static float delayValCor(uint8_t slidePosInd, float slidePos){
+
+	if (slidePosInd == 0) return 0.0f;
+
+    float fraction = ((slidePos - slidePositions[slidePosInd-1]) / (slidePositions[slidePosInd] - slidePositions[slidePosInd-1]));
+
+    //determines weighted average of the appropriate two delayCor[][] values based on slide position and harmonic
+    return ((delayCor[slidePosInd-1][((uint8_t) intHarmonic) - 1] * (1 - fraction)) + (delayCor[slidePosInd][((uint8_t) intHarmonic) - 1] * fraction));
+}
+
+//calculates first index in slidePositions[] that is past the current slide position and passes into delayValCor to return the correct delay value
+static float delayValueCorrection(float slidePos){
+    uint8_t i = 0;
+    for(i; i < 8; i++){
+        if(slidePos < slidePositions[i]){
+            return delayValCor(i, slidePos);
+        }
+    }
+    return 0.0f;
+}
+
+static int additionalDelay(float Tfreq)
+{
+	int period_in_samples = (SAMPLE_RATE / Tfreq);
+	return (period_in_samples - (SYSTEM_DELAY % period_in_samples));
+}
+
+float audioTickSynth(float audioIn)
+{
+	sample = 0.0f;
+
+	calculatePeaks();
+
+	tRamp_setDest(&finalFreqRamp, intPeak);
+
+	float pedal = tRamp_tick(&adc[ADCPedal]);
+
+	knobValueToUse = tRamp_tick(&adc[ADCKnob]);
+
+
+	breath = adcVals[ADCBreath];
+	breath = breath * INV_TWO_TO_16;
+	breath = breath - breath_baseline;
+	breath = breath * breath_mult;
+	breath *= amp_mult;
+
+	if (breath < 0.0f)					breath = 0.0f;
+	else if (breath > 1.0f)		  breath = 1.0f;
+
+	tRamp_setDest(&adc[ADCBreath], breath);
+
+	rampedBreath = tRamp_tick(&adc[ADCBreath]);
+
+
+	tSawtooth_setFreq(&osc, tRamp_tick(&finalFreqRamp));
+
+	sample = tSawtooth_tick(&osc);
+
+	//sample *= pedal;
+
+	sample *= rampedBreath;
+
+	//sample *= 0.1;
+
+	return sample;
+}
+
+
+float knob, Q;
+float audioTickFeedback(float audioIn)
+{
+	float pedal = tRamp_tick(&adc[ADCPedal]);
+	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
+
+	tSawtooth_setFreq(&osc, 200);
+	sample = tSawtooth_tick(&osc);
+	/*
+	sample = 0.0f;
+
+	calculatePeaks();
+
+	tRampSetDest(finalFreqRamp, intPeak);
+
+	knob = tRampTick(adc[ADCKnob]);
+
+	Q = OOPS_clip(0.5f, (knob - 0.1) * 300.0f, 300.0);
+
+	tRampSetDest(qRamp, Q);
+
+	tSVFSetQ(filter1, tRampTick(qRamp));
+
+
+	breath = adcVals[ADCBreath];
+	breath = breath * INV_TWO_TO_16;
+	breath = breath - breath_baseline;
+	breath = breath * breath_mult;
+	breath *= amp_mult;
+
+	if (breath < 0.0f)					breath = 0.0f;
+	else if (breath > 1.0f)		  breath = 1.0f;
+
+	tRampSetDest(adc[ADCBreath], breath);
+
+	rampedBreath = tRampTick(adc[ADCBreath]);
+
+	tSVFSetFreq(filter1, tRampTick(finalFreqRamp));
+
+	sample = tSVFTick(filter1, audioIn);
+
+	//sample = tCompressorTick(compressor, sample);
+
+	// Delay correction
+	newTestDelay = (float) additionalDelay(intPeak) + (pedal * 256.0f);// + delayValueCorrection(slideLengthM);
+	tRampSetDest(correctionRamp, newTestDelay);
+
+	tDelayLSetDelay(correctionDelay, tRampTick(correctionRamp));
+
+	sample = tDelayLTick(correctionDelay, sample);
+
+
+	sample *= rampedBreath;
+
+	//sample *= pedal;
+
+	//sample = OOPS_clip(-1.0f, sample * 20.0f, 1.0f);
+	//sample *= 0.1f;
+
+	//sample = tCycleTick(sine) * 0.5f * pedal;
 
 	 */
-	frameCounter++;
-	if (frameCounter >= 1)
-	{
-		frameCounter = 0;
-		buttonCheck();
-	}
-
-
-	tempVal = (adcx[TIMESTEP] * 128.0f * 2.0f + 1.0f) + (adcVals[8]*INV_TWO_TO_16 * 128.0f * 2.0f + 1.0f);
-	if (tempVal < 10.0f)
-	{
-		tempVal = 10.0f;
-	}
-	tRampSetDest(ramp[TIMESTEP], 1.0f / tempVal);
-	tempVal = (50.0f + ((adcx[CURRENT] + ((float)adcVals[9] * INV_TWO_TO_16)) * 128.0f) * 1.5f);
-	tRampSetDest(ramp[CURRENT], tempVal);
-	tempVal = (adcx[SODIUM_INACT] + ((float)adcVals[10] * INV_TWO_TO_16));
-	tRampSetDest(ramp[SODIUM_INACT], -1.0f * tempVal);
-	tempVal = adcx[SODIUM_ACT] + ((float)adcVals[11] * INV_TWO_TO_16);
-	tRampSetDest(ramp[SODIUM_ACT], 128.0f + (tempVal * 128.0f)  * 3.0f);
-	tRampSetDest(ramp[POTASSIUM], adcx[POTASSIUM] * 80.0f - 20.0f);
-	tRampSetDest(ramp[CAPACITANCE], adcx[CAPACITANCE] * 2.0f + 0.01f);
-	tRampSetDest(ramp[V1], (adcx[V1] * 128.0f)*2.0f - 128.0f);
-	tRampSetDest(ramp[V3], (adcx[V3] * 128.0f)*2.0f - 128.0f);
-	for (int i = 0; i < NUMPARAMS; i++)
-	{
-		//dropping the resolution of the knobs to allow for stable positions (by making the ADC only 8 bit)
-		adcx[i] = adcVals[i] / 256 * INV_TWO_TO_8;
-	}
-	
-	for (i = 0; i < (HALF_BUFFER_SIZE); i++)
-	{
-		if ((i & 1) == 0) {
-			current_sample = (int16_t)(audioTickL((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_15)) * TWO_TO_15);
-		}
-		else
-		{
-			//current_sample = (int16_t)(audioTickR((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_15)) * TWO_TO_15);
-		}
-		audioOutBuffer[buffer_offset + i] = current_sample;
-	}
-}
-
-float currentFreq = 1.0f;
-
-
-
-float audioTickL(float audioIn) 
-{
-	    tNeuronSetTimeStep(neuron, tRampTick(ramp[TIMESTEP]));
-
-		tNeuronSetCurrent(neuron, tRampTick(ramp[CURRENT]));
-
-		tNeuronSetL(neuron, tRampTick(ramp[SODIUM_INACT]));
-
-		tNeuronSetN(neuron, tRampTick(ramp[SODIUM_ACT]));
-
-		tNeuronSetK(neuron, tRampTick(ramp[POTASSIUM]));
-
-		tNeuronSetC(neuron, tRampTick(ramp[CAPACITANCE]));
-
-		tNeuronSetV1(neuron, tRampTick(ramp[V1]));
-
-		tNeuronSetV3(neuron, tRampTick(ramp[V3]));
-
-/*
-	tNeuronSetCurrent(neuron, 0.5f);
-
-	tNeuronSetL(neuron, 0.5f);
-
-	tNeuronSetN(neuron,0.5f);
-
-	tNeuronSetK(neuron, 0.5f);
-
-	tNeuronSetC(neuron, 0.5f);
-
-	tNeuronSetV1(neuron, 0.5f);
-
-	tNeuronSetV3(neuron, 0.5f);
-*/
-	sample =  tNeuronTick(neuron);
-	if (isnan(sample))
-	{
-		sample = 0.0f;
-	}
-	sample = tCompressorTick(compressor, sample);
-	if (isnan(sample))
-	{
-		sample = 0.0f;
-	}
-	sample *= 0.95f;
 	return sample;
+
 }
 
-float audioTickR(float audioIn) 
-{
-	return sample;
-}
 
-void buttonCheck(void)
-{
-	buttonValues[0] = !HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_13);
-	buttonValues[1] = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_6);
-	buttonValues[2] = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7);
-	buttonValues[3] = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_8);
 
-	for (int i = 0; i < 2; i++)
-	{
-	  if ((buttonValues[i] != buttonValuesPrev[i]) && (buttonCounters[i] < 40))
-	  {
-		  buttonCounters[i]++;
-	  }
-	  if ((buttonValues[i] != buttonValuesPrev[i]) && (buttonCounters[i] >= 40))
-	  {
-		  if (buttonValues[i] == 1)
-		  {
-			  buttonPressed[i] = 1;
-		  }
-		  buttonValuesPrev[i] = buttonValues[i];
-		  buttonCounters[i] = 0;
-	  }
-	}
-
-	if (buttonPressed[0] == 1)
-	{
-
-			neuron->mode++;
-			neuron->voltage = 0.0f;
-			if (neuron->mode > 2)
-			{
-				neuron->mode = 0;
-			}
-			if (neuron->mode == 0)
-			{
-				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_SET);
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
-			}
-			else if (neuron->mode == 1)
-			{
-				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
-			}
-			else if (neuron->mode == 2)
-			{
-				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
-			}
-			buttonPressed[0] = 0;
-	}
-	if (buttonPressed[1] == 1)
-	{
-
-			neuron->filterPlacement++;
-			neuron->voltage = 0.0f;
-			if (neuron->filterPlacement > 1)
-			{
-				neuron->filterPlacement = 0;
-			}
-			if (neuron->filterPlacement == AfterFeedback)
-			{
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
-			}
-			else if (neuron->filterPlacement == InFeedback)
-			{
-				HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET);
-			}
-
-			buttonPressed[1] = 0;
-	}
-}
 
 
 void HAL_SAI_ErrorCallback(SAI_HandleTypeDef *hsai)
 {
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
+	;
 }
 
 void HAL_SAI_TxCpltCallback(SAI_HandleTypeDef *hsai)
@@ -336,17 +425,13 @@ void HAL_SAI_TxHalfCpltCallback(SAI_HandleTypeDef *hsai)
   ;
 }
 
+
 void HAL_SAI_RxCpltCallback(SAI_HandleTypeDef *hsai)
 {
-
 	audioFrame(HALF_BUFFER_SIZE);
-	//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);;
 }
 
 void HAL_SAI_RxHalfCpltCallback(SAI_HandleTypeDef *hsai)
 {
-
 	audioFrame(0);
-	//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);;
 }
-
