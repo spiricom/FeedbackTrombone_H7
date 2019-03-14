@@ -100,14 +100,15 @@ void MX_I2C4_Init(void)
 {
 
   hi2c4.Instance = I2C4;
-  hi2c4.Init.Timing = 0x009034B6;
+  //hi2c4.Init.Timing = 0x009034B6;//400k
+  hi2c4.Init.Timing = 0x10c0ecff;//100k
   hi2c4.Init.OwnAddress1 = 0;
   hi2c4.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c4.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c4.Init.OwnAddress2 = 0;
   hi2c4.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c4.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c4.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  hi2c4.Init.NoStretchMode = I2C_NOSTRETCH_ENABLE;
   if (HAL_I2C_Init(&hi2c4) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);

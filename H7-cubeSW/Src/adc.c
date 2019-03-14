@@ -75,7 +75,7 @@ void MX_ADC1_Init(void)
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.ContinuousConvMode = ENABLE;
-  hadc1.Init.NbrOfConversion = 5;
+  hadc1.Init.NbrOfConversion = 6;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.NbrOfDiscConversion = 1;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
@@ -100,7 +100,7 @@ void MX_ADC1_Init(void)
 
     /**Configure Regular Channel 
     */
-  sConfig.Channel = ADC_CHANNEL_16; //ADC0 = joystick
+  sConfig.Channel = ADC_CHANNEL_14; //ADC0 = joystick
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_810CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
@@ -113,7 +113,7 @@ void MX_ADC1_Init(void)
 
     /**Configure Regular Channel 
     */
-  sConfig.Channel = ADC_CHANNEL_17;  //ADC1 = knob input
+  sConfig.Channel = ADC_CHANNEL_15;  //ADC1 = knob input
   sConfig.Rank = ADC_REGULAR_RANK_2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -122,7 +122,7 @@ void MX_ADC1_Init(void)
 
     /**Configure Regular Channel 
     */
-  sConfig.Channel = ADC_CHANNEL_14; //ADC2 = pedal input
+  sConfig.Channel = ADC_CHANNEL_16; //ADC2 = pedal input
   sConfig.Rank = ADC_REGULAR_RANK_3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -131,7 +131,7 @@ void MX_ADC1_Init(void)
 
     /**Configure Regular Channel 
     */
-  sConfig.Channel = ADC_CHANNEL_15; //ADC3 = breath input
+  sConfig.Channel = ADC_CHANNEL_17; //ADC3 = breath input
   sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -146,6 +146,15 @@ void MX_ADC1_Init(void)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
+  /**Configure Regular Channel
+  */
+
+sConfig.Channel = ADC_CHANNEL_19; //ADC4 = slide sensor (mislabeled as ADC5 in FBT EAGLE file, look at the EAGLE file for the brain)
+sConfig.Rank = ADC_REGULAR_RANK_5;
+if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+{
+  _Error_Handler(__FILE__, __LINE__);
+}
 
 }
 

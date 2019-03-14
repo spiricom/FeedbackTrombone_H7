@@ -61,6 +61,7 @@
 #include "usb_host.h"
 #include "gpio.h"
 #include "lcd.h"
+//#include "VL53L1X.h"
 
 /* USER CODE BEGIN Includes */
 #include "audiostream.h"
@@ -72,7 +73,7 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-#define NUM_ADC_CHANNELS 5
+#define NUM_ADC_CHANNELS 6
 uint16_t myADC[NUM_ADC_CHANNELS] __ATTR_RAM_D2;
 
 uint32_t counter = 0;
@@ -165,7 +166,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  //MX_BDMA_Init();
+  MX_BDMA_Init();
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_I2C2_Init();
@@ -174,92 +175,105 @@ int main(void)
   MX_SAI1_Init();
 
   //MX_SPI4_Init();
- // MX_I2C4_Init();
+  MX_I2C4_Init();
 
   /* USER CODE BEGIN 2 */
-
-
-
 
   // this code sets the processor to treat denormal numbers (very tiny floats) as zero to improve performance.
   uint32_t tempFPURegisterVal = __get_FPSCR();
   tempFPURegisterVal = (1<<24); // set the FTZ (flush-to-zero) bit in the FPU control register
   __set_FPSCR(tempFPURegisterVal);
 
-	if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
+	//if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
 	{
-		Error_Handler();
+		//Error_Handler();
 
 	}
-	audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
+	//audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
 
-	HAL_Delay(1000);
-	LCD_init(&hi2c2);
+	HAL_Delay(100);
+	LCD_init(&hi2c4);
+	HAL_Delay(100);
+	LCD_home(&hi2c4);
+	LCD_sendChar(&hi2c4, 'A');
+	LCD_sendChar(&hi2c4, 'A');
+	LCD_sendChar(&hi2c4, 'A');
+	LCD_sendChar(&hi2c4, 'A');
+	LCD_sendChar(&hi2c4, 'A');
+	LCD_sendChar(&hi2c4, 'A');
+	LCD_sendChar(&hi2c4, 'A');
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
 
-
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); //red LED 1
-
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET); //red LED 2
+	//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); //led white
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  LCD_home(&hi2c4);
+	  LCD_sendChar(&hi2c4, 'B');
+
+
+
+
+
 
 	  //ADC values are =
-	  // [0] = joystick
-	  // [1] = knob
-	  // [2] = pedal
-	  // [3] = breath
-	  // [4] = slide
-
+	  // [0] = joystick x
+	  // [1] = breath
+	  // [2] = open
+	  // [3] = joy Y
+	  // [4] = pedal
+	  // [5] = knob
+/*
 	 HAL_Delay(10);
-	 LCD_home(&hi2c2);
+	 LCD_home(&hi2c4);
 
-	 LCD_sendInteger(&hi2c2, intHarmonic, 2);
-	 LCD_sendChar(&hi2c2, ' ');
-
+	 LCD_sendInteger(&hi2c4, intHarmonic, 2);
+	 LCD_sendChar(&hi2c4, ' ');
+	 LCD_sendChar(&hi2c4, ' ');
 	 //LCD_sendFixedFloat(&hi2c2, dist, 3, 1);
 
 	 //LCD_sendInteger(&hi2c2, myADC[1], 5);
 	 //button1
-	if (!HAL_GPIO_ReadPin(GPIOD, GPIO_PIN_13))
+	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_13))
 	{
 		if (!isButtonOneDown)	buttonOneDown();
-		LCD_sendChar(&hi2c2, '1');
+		LCD_sendChar(&hi2c4, '1');
 	}
 	else
 	{
-		LCD_sendChar(&hi2c2, ' ');
+		LCD_sendChar(&hi2c4, ' ');
 		if (isButtonOneDown) 	buttonOneUp();
 	}
 
-
 	//button2
-	if (!HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7))
+	if (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0))
 	{
 		if (!isButtonTwoDown)	buttonTwoDown();
-		LCD_sendChar(&hi2c2, '2');
+		LCD_sendChar(&hi2c4, '2');
 	}
 	else
 	{
-		LCD_sendChar(&hi2c2, ' ');
+
+		LCD_sendChar(&hi2c4, ' ');
 		if (isButtonTwoDown)	buttonTwoUp();
 	}
 
 	//P button
-	if (!HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_9))
+	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_11))
 	{
-		LCD_sendChar(&hi2c2, 'P');
+		LCD_sendChar(&hi2c4, 'P');
 		//if (!isPresetButtonDown) 	presetButtonDown();
 	}
 	else
 	{
-		LCD_sendChar(&hi2c2, ' ');
+		LCD_sendChar(&hi2c4, ' ');
 		//if (isPresetButtonDown)		presetButtonUp();
 	}
-
+*/
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */

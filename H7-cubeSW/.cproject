@@ -92,6 +92,7 @@
 							<option id="fr.ac6.managedbuild.option.gnu.cross.instructionSet.1453544671.28930927" name="Instruction Set" superClass="fr.ac6.managedbuild.option.gnu.cross.instructionSet.1453544671"/>
 							<option id="fr.ac6.managedbuild.option.gnu.cross.fpu.153772718.1054124243" name="Floating point hardware" superClass="fr.ac6.managedbuild.option.gnu.cross.fpu.153772718"/>
 							<option id="fr.ac6.managedbuild.option.gnu.cross.floatabi.611689952.1931392103" name="Floating-point ABI" superClass="fr.ac6.managedbuild.option.gnu.cross.floatabi.611689952"/>
+							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="fr.ac6.managedbuild.targetPlatform.gnu.cross" isAbstract="false" osList="all" superClass="fr.ac6.managedbuild.targetPlatform.gnu.cross"/>
 							<tool id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.55176917" name="MCU GCC Compiler" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.543834935">
 								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.c.1969486570" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.c"/>
 								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.s.758906045" superClass="fr.ac6.managedbuild.tool.gnu.cross.c.compiler.input.s"/>
@@ -193,6 +194,13 @@
 								</option>
 								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.653240242" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
 								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.assembler.input.871249066" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.input"/>
+							</tool>
+							<tool id="fr.ac6.managedbuild.tool.gnu.cross.assembler.exe.release.1716532851" name="MCU GCC Assembler" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.exe.release">
+								<option id="gnu.both.asm.option.include.paths.310070076" superClass="gnu.both.asm.option.include.paths" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/H7-cube/LEAF/LEAF}&quot;"/>
+								</option>
+								<inputType id="cdt.managedbuild.tool.gnu.assembler.input.1412264885" superClass="cdt.managedbuild.tool.gnu.assembler.input"/>
+								<inputType id="fr.ac6.managedbuild.tool.gnu.cross.assembler.input.409489866" superClass="fr.ac6.managedbuild.tool.gnu.cross.assembler.input"/>
 							</tool>
 						</toolChain>
 					</folderInfo>

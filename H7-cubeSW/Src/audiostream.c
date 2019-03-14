@@ -3,11 +3,12 @@
 #include "main.h"
 #include "codec.h"
 
-#define ADCJoyY 0
-#define ADCKnob 1
-#define ADCPedal 2
-#define ADCBreath 3
-#define ADCSlide 4
+#define ADCJoyY 3
+#define ADCJoyX 0
+#define ADCKnob 5
+#define ADCPedal 4
+#define ADCBreath 1
+#define ADCSlide 2
 
 #define NUM_HARMONICS 16.0f
 
@@ -63,6 +64,8 @@ tRamp correctionRamp;
 tDelayL correctionDelay;
 
 tCompressor compressor;
+
+tCrusher crush;
 
 float breath_baseline = 0.0f;
 float breath_mult = 0.0f;
@@ -122,9 +125,20 @@ float audioTickSynth(float audioIn);
 float audioTickFeedback(float audioIn);
 
 
+
+//ADC values are =
+// [0] = joystick x
+// [1] = breath
+// [2] = open
+// [3] = joy Y
+// [4] = pedal
+// [5] = knob
+
+
+
 void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTypeDef* hsaiIn, RNG_HandleTypeDef* hrand, uint16_t* myADCArray)
 { 
-	// Initialize the audio library. OOPS.
+	// Initialize the audio library.
 	LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, &randomNumber);
 
 	//now to send all the necessary messages to the codec
@@ -151,7 +165,7 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	tRamp_init(&adc[ADCPedal], 18, 1);
 	tRamp_init(&adc[ADCBreath], 1, 1);
 	tRamp_init(&adc[ADCSlide], 20, AUDIO_FRAME_SIZE);
-
+	tRamp_init(&adc[ADCJoyX], 20, 1);
 	/*
 	compressor = tCompressorInit();
 
@@ -174,7 +188,7 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	valPerM = 1430.0f;// / powf(2.0f,SLIDE_BITS);
 	mPerVal = 1.0f/valPerM;
 
-
+	tCrusher_init(&crush);
 	// right shift 4 because our valPerM measure is originally from 12 bit data. now we are using 16 bit adc for controller input, so scaling was all off.
 	firstPositionValue = adcVals[ADCSlide] >> 4;
 	tRamp_setVal(&slideRamp, firstPositionValue);
@@ -189,6 +203,11 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 
 }
 
+float audioTickDry(float in)
+{
+	return in;
+}
+
 void audioFrame(uint16_t buffer_offset)
 {
 	uint16_t i = 0;
@@ -198,6 +217,7 @@ void audioFrame(uint16_t buffer_offset)
 	tRamp_setDest(&adc[ADCPedal], (adcVals[ADCPedal] * INV_TWO_TO_16));
 	tRamp_setDest(&adc[ADCKnob], (adcVals[ADCKnob] * INV_TWO_TO_16));
 	tRamp_setDest(&adc[ADCJoyY], 1.0f - ((adcVals[ADCJoyY] * INV_TWO_TO_16) - 0.366f) * 3.816f);
+	tRamp_setDest(&adc[ADCJoyX], 1.0f - ((adcVals[ADCJoyX] * INV_TWO_TO_16) - 0.366f) * 3.816f);
 
 	// right shift 4 because our valPerM measure is originally from 12 bit data. now we are using 16 bit adc for controller input, so scaling was all off.
 	tRamp_setDest(&adc[ADCSlide], adcVals[ADCSlide] >> 4);
@@ -225,6 +245,10 @@ void audioFrame(uint16_t buffer_offset)
 		for (i = 0; i < (HALF_BUFFER_SIZE); i++)
 		{
 			if ((i & 1) == 0)
+			{
+				current_sample = (int32_t)(audioTickSynth((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+			}
+			else
 			{
 				current_sample = (int32_t)(audioTickSynth((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
 			}
@@ -301,6 +325,7 @@ static int additionalDelay(float Tfreq)
 
 float audioTickSynth(float audioIn)
 {
+
 	sample = 0.0f;
 
 	calculatePeaks();
@@ -310,7 +335,7 @@ float audioTickSynth(float audioIn)
 	float pedal = tRamp_tick(&adc[ADCPedal]);
 
 	knobValueToUse = tRamp_tick(&adc[ADCKnob]);
-
+	float theCrushParam = tRamp_tick(&adc[ADCJoyX]);
 
 	breath = adcVals[ADCBreath];
 	breath = breath * INV_TWO_TO_16;
@@ -334,8 +359,18 @@ float audioTickSynth(float audioIn)
 
 	sample *= rampedBreath;
 
+	sample *= 2.0f;
+	sample = LEAF_shaper(sample, 1.6f);
+
+	tCrusher_setQuality(&crush,theCrushParam);
+
+	tCrusher_setSamplingRatio(&crush,theCrushParam);
+	sample = tCrusher_tick(&crush, sample);
+
 	//sample *= 0.1;
 
+
+	//sample = audioIn;
 	return sample;
 }
 
@@ -343,11 +378,25 @@ float audioTickSynth(float audioIn)
 float knob, Q;
 float audioTickFeedback(float audioIn)
 {
+
 	float pedal = tRamp_tick(&adc[ADCPedal]);
 	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
 
 	tSawtooth_setFreq(&osc, 200);
-	sample = tSawtooth_tick(&osc);
+	breath = adcVals[ADCBreath];
+	breath = breath * INV_TWO_TO_16;
+	breath = breath - breath_baseline;
+	breath = breath * breath_mult;
+	breath *= amp_mult;
+
+	if (breath < 0.0f)					breath = 0.0f;
+	else if (breath > 1.0f)		  breath = 1.0f;
+
+	tRamp_setDest(&adc[ADCBreath], breath);
+
+	rampedBreath = tRamp_tick(&adc[ADCBreath]);
+	sample = tSawtooth_tick(&osc) * rampedBreath;
+
 	/*
 	sample = 0.0f;
 
