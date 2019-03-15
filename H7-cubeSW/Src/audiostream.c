@@ -236,10 +236,15 @@ void audioFrame(uint16_t buffer_offset)
 			{
 				current_sample = (int32_t)(audioTickFeedback((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
 			}
+			else
+			{
+				current_sample = (int32_t)(audioTickSynth((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+			}
 
 			audioOutBuffer[buffer_offset + i] = current_sample;
 		}
 	}
+	/*
 	else
 	{
 		for (i = 0; i < (HALF_BUFFER_SIZE); i++)
@@ -256,6 +261,7 @@ void audioFrame(uint16_t buffer_offset)
 			audioOutBuffer[buffer_offset + i] = current_sample;
 		}
 	}
+	*/
 
 
 }
@@ -325,8 +331,9 @@ static int additionalDelay(float Tfreq)
 
 float audioTickSynth(float audioIn)
 {
-
+/*
 	sample = 0.0f;
+
 
 	calculatePeaks();
 
@@ -366,11 +373,12 @@ float audioTickSynth(float audioIn)
 
 	tCrusher_setSamplingRatio(&crush,theCrushParam);
 	sample = tCrusher_tick(&crush, sample);
-
+*/
 	//sample *= 0.1;
 
 
-	//sample = audioIn;
+	sample = audioIn;
+
 	return sample;
 }
 
@@ -378,7 +386,7 @@ float audioTickSynth(float audioIn)
 float knob, Q;
 float audioTickFeedback(float audioIn)
 {
-
+/*
 	float pedal = tRamp_tick(&adc[ADCPedal]);
 	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
 
@@ -396,7 +404,7 @@ float audioTickFeedback(float audioIn)
 
 	rampedBreath = tRamp_tick(&adc[ADCBreath]);
 	sample = tSawtooth_tick(&osc) * rampedBreath;
-
+*/
 	/*
 	sample = 0.0f;
 
@@ -447,10 +455,10 @@ float audioTickFeedback(float audioIn)
 
 	//sample = OOPS_clip(-1.0f, sample * 20.0f, 1.0f);
 	//sample *= 0.1f;
+*/
+	//sample = tCycle_tick(&sine) * 0.5f * pedal;
+	sample = audioIn;
 
-	//sample = tCycleTick(sine) * 0.5f * pedal;
-
-	 */
 	return sample;
 
 }

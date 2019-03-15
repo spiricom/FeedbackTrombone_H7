@@ -184,24 +184,18 @@ int main(void)
   tempFPURegisterVal = (1<<24); // set the FTZ (flush-to-zero) bit in the FPU control register
   __set_FPSCR(tempFPURegisterVal);
 
-	//if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
+	if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
 	{
-		//Error_Handler();
+		Error_Handler();
 
 	}
-	//audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
+	audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
 
 	HAL_Delay(100);
 	LCD_init(&hi2c4);
 	HAL_Delay(100);
 	LCD_home(&hi2c4);
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
+
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
 
@@ -212,8 +206,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  LCD_home(&hi2c4);
-	  LCD_sendChar(&hi2c4, 'B');
+
 
 
 
@@ -227,7 +220,7 @@ int main(void)
 	  // [3] = joy Y
 	  // [4] = pedal
 	  // [5] = knob
-/*
+
 	 HAL_Delay(10);
 	 LCD_home(&hi2c4);
 
@@ -236,7 +229,7 @@ int main(void)
 	 LCD_sendChar(&hi2c4, ' ');
 	 //LCD_sendFixedFloat(&hi2c2, dist, 3, 1);
 
-	 //LCD_sendInteger(&hi2c2, myADC[1], 5);
+	 LCD_sendInteger(&hi2c4, myADC[1], 5);
 	 //button1
 	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_13))
 	{
@@ -273,7 +266,7 @@ int main(void)
 		LCD_sendChar(&hi2c4, ' ');
 		//if (isPresetButtonDown)		presetButtonUp();
 	}
-*/
+
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
