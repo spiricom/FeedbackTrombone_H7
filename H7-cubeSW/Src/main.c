@@ -61,7 +61,7 @@
 #include "usb_host.h"
 #include "gpio.h"
 #include "lcd.h"
-//#include "VL53L1X.h"
+#include "pVL53L1X.h"
 
 /* USER CODE BEGIN Includes */
 #include "audiostream.h"
@@ -75,6 +75,8 @@
 
 #define NUM_ADC_CHANNELS 6
 uint16_t myADC[NUM_ADC_CHANNELS] __ATTR_RAM_D2;
+
+VL53L1X laser;
 
 uint32_t counter = 0;
 
