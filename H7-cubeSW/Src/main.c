@@ -61,7 +61,9 @@
 #include "usb_host.h"
 #include "gpio.h"
 #include "lcd.h"
-#include "pVL53L1X.h"
+//#include "pVL53L1X.h"
+#include "VL53L1X_api.h"
+#include "VL53l1X_calibration.h"
 
 /* USER CODE BEGIN Includes */
 #include "audiostream.h"
@@ -76,9 +78,34 @@
 #define NUM_ADC_CHANNELS 6
 uint16_t myADC[NUM_ADC_CHANNELS] __ATTR_RAM_D2;
 
-VL53L1X laser;
+//VL53L1X laser;
+
+VL53L1_Dev_t dev;
+int status=0;
+volatile int IntCount;
+
+#define isInterrupt 0 /* If isInterrupt = 1 then device working in interrupt mode, else device working in polling mode */
+uint8_t byteData, sensorState=0;
+uint16_t wordData;
+uint8_t ToFSensor = 1; // 0=Left, 1=Center(default), 2=Right
+uint16_t Distance;
+uint16_t SignalRate;
+uint16_t AmbientRate;
+uint8_t RangeStatus;
+uint8_t dataReady;
+int16_t offset;
+uint16_t xtalk;
+
+
+
+
+
+
 
 uint32_t counter = 0;
+
+
+
 
 
 /* USER CODE END PV */
@@ -133,7 +160,7 @@ static void buttonTwoUp(void)
   *
   * @retval None
   */
-
+uint16_t laserRange = 0;
 
 int main(void)
 {
@@ -179,31 +206,74 @@ int main(void)
   //MX_SPI4_Init();
   MX_I2C4_Init();
 
-  /* USER CODE BEGIN 2 */
-
   // this code sets the processor to treat denormal numbers (very tiny floats) as zero to improve performance.
   uint32_t tempFPURegisterVal = __get_FPSCR();
   tempFPURegisterVal = (1<<24); // set the FTZ (flush-to-zero) bit in the FPU control register
   __set_FPSCR(tempFPURegisterVal);
 
-	//if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
+
+
+  /* USER CODE BEGIN 2 */
+  dev.I2cHandle = &hi2c2;
+  dev.I2cDevAddr = 0x52;
+  /* Those basic I2C read functions can be used to check your own I2C functions */
+    //status = VL53L1_RdByte(&dev, 0x010F, &byteData);
+    //printf("VL53L1X Model_ID: %X\n", byteData);
+    //status = VL53L1_RdByte(&dev, 0x0110, &byteData);
+    //printf("VL53L1X Module_Type: %X\n", byteData);
+    //status = VL53L1_RdWord(&dev, 0x010F, &wordData);
+   // printf("VL53L1X: %X\n", wordData);
+
+    while(sensorState==0)
+    {
+    	status = VL53L1X_BootState(dev, &sensorState);
+    	HAL_Delay(2);
+    }
+    status = VL53L1X_SensorInit(dev);
+      status = VL53L1X_SetDistanceMode(dev, 1); /* 1=short, 2=long */
+      status = VL53L1X_SetTimingBudgetInMs(dev, 20); /* in ms possible values [20, 50, 100, 200, 500] */
+      status = VL53L1X_SetInterMeasurementInMs(dev, 20);
+      	//status = VL53L1X_CalibrateOffset(dev, 140, &offset); /* may take few second to perform the offset cal*/
+      	//HAL_Delay(4000);
+      	//status = VL53L1X_CalibrateXtalk(dev, 1400, &xtalk);
+      	//HAL_Delay(4000);
+      //HAL_Delay(1000);
+    status = VL53L1X_StartRanging(dev);
+
+
+
+	//HAL_Delay(10);
+	//LCD_init(&hi2c4);
+
+	//HAL_Delay(10);
+/*
+	VL53L1X_setTimeout(&laser,500);
+	HAL_Delay(2);
+	VL53L1X_init(&laser);
+	VL53L1X_start(&laser, 1);
+	HAL_Delay(2);
+
+	  // Use long distance mode and allow up to 50000 us (50 ms) for a measurement.
+	  // You can change these settings to adjust the performance of the sensor, but
+	  // the minimum timing budget is 20 ms for short distance mode and 33 ms for
+	  // medium and long distance modes. See the VL53L1X datasheet for more
+	  // information on range and timing limits.
+	VL53L1X_setDistanceMode(&laser,Short);
+	HAL_Delay(2);
+	VL53L1X_setMeasurementTimingBudget(&laser,20000);
+	HAL_Delay(2);
+	  // Start continuous readings at a rate of one measurement every 50 ms (the
+	  // inter-measurement period). This period should be at least as long as the
+	  // timing budget.
+	VL53L1X_startContinuous(&laser,50);
+	HAL_Delay(2);
+*/
+    if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
 	{
 		//Error_Handler();
 
 	}
-	//audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
-
-	HAL_Delay(100);
-	LCD_init(&hi2c4);
-	HAL_Delay(100);
-	LCD_home(&hi2c4);
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
-	LCD_sendChar(&hi2c4, 'A');
+	audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
 
@@ -214,14 +284,52 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  LCD_home(&hi2c4);
-	  LCD_sendChar(&hi2c4, 'B');
 
+	  //while (dataReady == 0){
+	  		  //status = VL53L1X_CheckForDataReady(dev, &dataReady);
+	  		  //HAL_Delay(10);
+	  	  //}
+	  	  dataReady = 0;
+	  	  //status = VL53L1X_GetRangeStatus(dev, &RangeStatus);
+	  	//HAL_Delay(100);
+	  	  status = VL53L1X_GetDistance(dev, &Distance);
 
+	  	LCD_home(&hi2c4);
+	  	LCD_sendInteger(&hi2c4, Distance, 5);
+		 LCD_sendChar(&hi2c4, ' ');
+		 LCD_sendChar(&hi2c4, ' ');
+		 LCD_sendInteger(&hi2c4, _I2CBuffer[0], 3);
+		 LCD_sendChar(&hi2c4, ' ');
+		 LCD_sendChar(&hi2c4, ' ');
+	  	LCD_sendInteger(&hi2c4, _I2CBuffer[1], 3);
+	  	  //Distance = (_I2CBuffer[0] << 8) + _I2CBuffer[1];
+	  	  //status = VL53L1X_GetSignalRate(dev, &SignalRate);
+	  	  //status = VL53L1X_GetAmbientRate(dev, &AmbientRate);
+	  	  //status = VL53L1X_ClearInterrupt(dev); /* clear interrupt has to be called to enable next interrupt*/
+	  	  //printf("%u, %u, %u, %u\n", RangeStatus, Distance, SignalRate, AmbientRate);
+	  	  //if (RangeStatus == 0)
+	  	  {
+	  		  //laserRange = Distance;
+	  	  }
 
+	  //HAL_Delay(100);
+	  //if (VL53L1X_dataReady(&laser) == 0x00)
+	  //{
+	  //VL53L1X_init(&laser);
 
+/*
+	  //VL53L1X_startContinuous(&laser,50);
+	  VL53L1X_read(&laser, 0);
+		  if (laser.ranging_data.range_status == RangeValid)
+		  {
+			  laserRange = laser.ranging_data.range_mm;
+		  }
+		  else
+		  {
+			  laser.calibrated = 0;
+		  }
 
-
+*/
 	  //ADC values are =
 	  // [0] = joystick x
 	  // [1] = breath
@@ -229,16 +337,21 @@ int main(void)
 	  // [3] = joy Y
 	  // [4] = pedal
 	  // [5] = knob
-/*
-	 HAL_Delay(10);
-	 LCD_home(&hi2c4);
 
-	 LCD_sendInteger(&hi2c4, intHarmonic, 2);
+	 //HAL_Delay(20);
+	 //LCD_home(&hi2c4);
+
+	 //LCD_sendInteger(&hi2c4, intHarmonic, 2);
 	 LCD_sendChar(&hi2c4, ' ');
 	 LCD_sendChar(&hi2c4, ' ');
 	 //LCD_sendFixedFloat(&hi2c2, dist, 3, 1);
 
-	 //LCD_sendInteger(&hi2c2, myADC[1], 5);
+	 //LCD_sendInteger(&hi2c4, myADC[1], 5);
+	 LCD_sendChar(&hi2c4, ' ');
+	 LCD_sendChar(&hi2c4, ' ');
+
+	 //LCD_sendInteger(&hi2c4, laserRange, 5);
+
 	 //button1
 	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_13))
 	{
@@ -275,7 +388,6 @@ int main(void)
 		LCD_sendChar(&hi2c4, ' ');
 		//if (isPresetButtonDown)		presetButtonUp();
 	}
-*/
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */

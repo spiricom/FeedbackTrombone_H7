@@ -13,12 +13,19 @@
 
 #endif
 
-// #include <Wire.h>
 
+#include <i2c.h>
+#define VL_I2C_BUS &hi2c2
+
+
+uint8_t VL_I2cData[8];
+uint8_t VL_I2cDataRX[8];
+uint16_t VL_I2Ctimeout = 2000;
 
 uint16_t millis(void)
 {
    // PORT time since startup in ms
+	return 0;
 }
 
 uint8_t VL53L1X_getAddress(VL53L1X* vl)
@@ -38,7 +45,7 @@ uint16_t VL53L1X_readRangeContinuousMillimeters(VL53L1X* vl, int blocking)
 
 int VL53L1X_dataReady(VL53L1X* vl)
 {
-	return (readReg(vl, GPIO__TIO_HV_STATUS) & 0x01) == 0;
+	return (VL53L1X_readReg(vl, GPIO__TIO_HV_STATUS) & 0x01) == 0;
 }
 
 void VL53L1X_setTimeout(VL53L1X* vl, uint16_t timeout)
@@ -102,12 +109,12 @@ int VL53L1X_start(VL53L1X* vl, int io_2v8)
   // VL53L1_software_reset() begin
 
   VL53L1X_writeReg(vl, SOFT_RESET, 0x00);
-  // delayMicroseconds(100); // PORT translate to STM sleep 100 ms
+  HAL_Delay(100);
   VL53L1X_writeReg(vl, SOFT_RESET, 0x01);
 
   // give it some time to boot; otherwise the sensor NACKs during the readReg()
   // call below and the Arduino 101 doesn't seem to handle that well
-  // delay(1); // PORT to STM delay of 1 second
+  HAL_Delay(1000);
 
   // VL53L1_poll_for_boot_completion() begin
 
@@ -217,6 +224,7 @@ int VL53L1X_start(VL53L1X* vl, int io_2v8)
   return 1;
 }
 
+
 // Write an 8-bit register
 void VL53L1X_writeReg(VL53L1X* vl, uint16_t reg, uint8_t value)
 {
@@ -228,6 +236,12 @@ void VL53L1X_writeReg(VL53L1X* vl, uint16_t reg, uint8_t value)
   Wire.write(value);
   last_status = Wire.endTransmission();
      */
+	VL_I2cData[0] = (reg >> 8) & 0xFF;
+	VL_I2cData[1] = reg & 0xFF;
+	VL_I2cData[2] = value;
+
+	HAL_I2C_Master_Transmit(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cData, 3, VL_I2Ctimeout);
+	HAL_Delay(1);
 }
 
 // Write a 16-bit register
@@ -242,6 +256,12 @@ void VL53L1X_writeReg16Bit(VL53L1X* vl, uint16_t reg, uint16_t value)
   Wire.write( value       & 0xFF); // value low byte
   last_status = Wire.endTransmission();
      */
+	VL_I2cData[0] = (reg >> 8) & 0xFF;
+	VL_I2cData[1] = reg & 0xFF;
+	VL_I2cData[2] = (value >> 8) & 0xFF;
+	VL_I2cData[3] = value & 0xFF;
+	HAL_I2C_Master_Transmit(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cData, 4, VL_I2Ctimeout);
+	HAL_Delay(1);
 }
 
 // Write a 32-bit register
@@ -258,6 +278,15 @@ void VL53L1X_writeReg32Bit(VL53L1X* vl, uint16_t reg, uint32_t value)
   Wire.write( value        & 0xFF); // value lowest byte
   last_status = Wire.endTransmission();
      */
+
+	VL_I2cData[0] = (reg >> 8) & 0xFF;
+	VL_I2cData[1] = reg & 0xFF;
+	VL_I2cData[2] = (value >> 24) & 0xFF;
+	VL_I2cData[3] = (value >> 16) & 0xFF;
+	VL_I2cData[4] = (value >> 8) & 0xFF;
+	VL_I2cData[5] = value & 0xFF;
+	HAL_I2C_Master_Transmit(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cData, 6, VL_I2Ctimeout);
+	HAL_Delay(1);
 }
 
 // Read an 8-bit register
@@ -277,6 +306,15 @@ uint8_t VL53L1X_readReg(VL53L1X* vl, RegAddr reg)
 
   return value;
      */
+	uint8_t value;
+	VL_I2cData[0] = (reg >> 8) & 0xFF;
+	VL_I2cData[1] = reg & 0xFF;
+	HAL_I2C_Master_Transmit(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cData, 2, VL_I2Ctimeout);
+	HAL_Delay(1);
+	HAL_I2C_Master_Receive(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cDataRX, 1, VL_I2Ctimeout);
+	value = VL_I2cDataRX[0];
+
+	return value;
 }
 
 // Read a 16-bit register
@@ -297,6 +335,18 @@ uint16_t VL53L1X_readReg16Bit(VL53L1X* vl, uint16_t reg)
 
   return value;
      */
+
+	uint16_t value;
+	VL_I2cData[0] = (reg >> 8) & 0xFF;
+	VL_I2cData[1] = reg & 0xFF;
+	HAL_I2C_Master_Transmit(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cData, 2, VL_I2Ctimeout);
+	HAL_Delay(1);
+	HAL_I2C_Master_Receive(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cDataRX, 2, VL_I2Ctimeout);
+	value  = ((uint16_t)VL_I2cDataRX[0]) << 8;
+	value |= VL_I2cDataRX[1];
+	return value;
+
+
 }
 
 // Read a 32-bit register
@@ -319,6 +369,19 @@ uint32_t VL53L1X_readReg32Bit(VL53L1X* vl, uint16_t reg)
 
   return value;
      */
+	uint32_t value;
+	VL_I2cData[0] = (reg >> 8) & 0xFF;
+	VL_I2cData[1] = reg & 0xFF;
+	HAL_I2C_Master_Transmit(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cData, 2, VL_I2Ctimeout);
+	HAL_Delay(1);
+	HAL_I2C_Master_Receive(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cDataRX, 4, VL_I2Ctimeout);
+	value  = ((uint32_t)VL_I2cDataRX[0]) << 24;
+	value |= (uint32_t)VL_I2cDataRX[1] << 16;
+	value |= ((uint16_t)VL_I2cDataRX[2]) << 8;
+	value |= VL_I2cDataRX[3];
+	return value;
+
+
 }
 
 // set distance mode to Short, Medium, or Long
@@ -432,11 +495,11 @@ int VL53L1X_setMeasurementTimingBudget(VL53L1X* vl, uint32_t budget_us)
     VL53L1X_timeoutMicrosecondsToMclks(vl, 1, macro_period_us)));
 
   // "Update Range Timing A timeout"
-  VL53L1X_writeReg16Bit(vl, RANGE_CONFIG__TIMEOUT_MACROP_A, encodeTimeout(
+  VL53L1X_writeReg16Bit(vl, RANGE_CONFIG__TIMEOUT_MACROP_A, VL53L1X_encodeTimeout(vl,
     VL53L1X_timeoutMicrosecondsToMclks(vl, range_config_timeout_us, macro_period_us)));
 
   // "Update Macro Period for Range B VCSEL Period"
-  macro_period_us = VL53L1X_calcMacroPeriod(vl, readReg(RANGE_CONFIG__VCSEL_PERIOD_B));
+  macro_period_us = VL53L1X_calcMacroPeriod(vl, VL53L1X_readReg(vl, RANGE_CONFIG__VCSEL_PERIOD_B));
 
   // "Update MM Timing B timeout"
   // (See earlier comment about MM Timing A timeout.)
@@ -516,12 +579,14 @@ void VL53L1X_stopContinuous(VL53L1X* vl)
 // single-shot range measurement)
 uint16_t VL53L1X_read(VL53L1X* vl, int blocking)
 {
-  if (blocking != 0)
+
+if (blocking != 0)
   {
-    startTimeout();
+    //VL53L1X_startTimeout();
     while (!VL53L1X_dataReady(vl))
     {
-      if (VL53L1X_checkTimeoutExpired(vl))
+      /*
+    	if (VL53L1X_checkTimeoutExpired(vl))
       {
         vl->did_timeout = 1;
         vl->ranging_data.range_status = None;
@@ -530,6 +595,8 @@ uint16_t VL53L1X_read(VL53L1X* vl, int blocking)
         vl->ranging_data.ambient_count_rate_MCPS = 0;
         return vl->ranging_data.range_mm;
       }
+      */
+    	;
     }
   }
 
@@ -617,8 +684,8 @@ int VL53L1X_timeoutOccurred(VL53L1X* vl)
 void VL53L1X_setupManualCalibration(VL53L1X* vl)
 {
   // "save original vhv configs"
-  vl->saved_vhv_init = readReg(VHV_CONFIG__INIT);
-  vl->saved_vhv_timeout = readReg(VHV_CONFIG__TIMEOUT_MACROP_LOOP_BOUND);
+  vl->saved_vhv_init = VL53L1X_readReg(vl, VHV_CONFIG__INIT);
+  vl->saved_vhv_timeout = VL53L1X_readReg(vl,VHV_CONFIG__TIMEOUT_MACROP_LOOP_BOUND);
 
   // "disable VHV init"
   VL53L1X_writeReg(vl, VHV_CONFIG__INIT, vl->saved_vhv_init & 0x7F);
@@ -629,7 +696,7 @@ void VL53L1X_setupManualCalibration(VL53L1X* vl)
 
   // "override phasecal"
   VL53L1X_writeReg(vl, PHASECAL_CONFIG__OVERRIDE, 0x01);
-  VL53L1X_writeReg(vl, CAL_CONFIG__VCSEL_START, readReg(PHASECAL_RESULT__VCSEL_START));
+  VL53L1X_writeReg(vl, CAL_CONFIG__VCSEL_START, VL53L1X_readReg(vl, PHASECAL_RESULT__VCSEL_START));
 }
 
 // read measurement results into buffer
@@ -671,6 +738,30 @@ void VL53L1X_readResults(VL53L1X* vl)
   results.peak_signal_count_rate_crosstalk_corrected_mcps_sd0  = (uint16_t)Wire.read() << 8; // high byte
   results.peak_signal_count_rate_crosstalk_corrected_mcps_sd0 |=           Wire.read();      // low byte
      */
+
+	uint32_t value;
+	VL_I2cData[0] = (RESULT__RANGE_STATUS >> 8) & 0xFF;
+	VL_I2cData[1] = RESULT__RANGE_STATUS & 0xFF;
+	HAL_I2C_Master_Transmit(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cData, 2, VL_I2Ctimeout);
+	HAL_Delay(1);
+	HAL_I2C_Master_Receive(VL_I2C_BUS, VL_I2C_ADDRESS, VL_I2cDataRX, 17, VL_I2Ctimeout);
+	vl->results.range_status = VL_I2cDataRX[0];
+	//skip 1 value
+	vl->results.stream_count = VL_I2cDataRX[2];
+	vl->results.dss_actual_effective_spads_sd0  = (uint16_t)VL_I2cDataRX[3] << 8; // high byte
+	vl->results.dss_actual_effective_spads_sd0 |= VL_I2cDataRX[4];      // low byte
+	//skip 2 values
+	vl->results.ambient_count_rate_mcps_sd0  = (uint16_t)VL_I2cDataRX[7] << 8; // high byte
+	vl->results.ambient_count_rate_mcps_sd0 |=          VL_I2cDataRX[8];      // low byte
+	//skip 4 values
+
+	vl->results.final_crosstalk_corrected_range_mm_sd0  = (uint16_t)VL_I2cDataRX[13] << 8; // high byte
+	vl->results.final_crosstalk_corrected_range_mm_sd0 |=           VL_I2cDataRX[14];      // low byte
+
+	vl->results.peak_signal_count_rate_crosstalk_corrected_mcps_sd0  = (uint16_t)VL_I2cDataRX[15] << 8; // high byte
+	vl->results.peak_signal_count_rate_crosstalk_corrected_mcps_sd0 |=           VL_I2cDataRX[16];      // low byte
+
+
 }
 
 // perform Dynamic SPAD Selection calculation/update

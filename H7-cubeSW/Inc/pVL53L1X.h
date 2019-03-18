@@ -10,6 +10,10 @@ extern "C" {
 // PORT
 uint16_t millis(void);
     
+
+//may need to left shift this, depending on whether st I2c uses 7-bit or 8-bit addresses (I can't remember) - JS
+#define VL_I2C_ADDRESS  0x52
+
 // register addresses from API vl53l1x_register_map.h
 typedef enum _RegAddr
 {

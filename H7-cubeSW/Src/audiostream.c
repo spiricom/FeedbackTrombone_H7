@@ -236,6 +236,10 @@ void audioFrame(uint16_t buffer_offset)
 			{
 				current_sample = (int32_t)(audioTickFeedback((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
 			}
+			else
+			{
+				current_sample = (int32_t)(audioTickFeedback((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+			}
 
 			audioOutBuffer[buffer_offset + i] = current_sample;
 		}
@@ -447,10 +451,10 @@ float audioTickFeedback(float audioIn)
 
 	//sample = OOPS_clip(-1.0f, sample * 20.0f, 1.0f);
 	//sample *= 0.1f;
+*/
+	sample = tCycle_tick(&sine) * 0.5f * LEAF_clip(0.0f, ((adcVals[ADCKnob] / 65535.0f) - 0.1f), 1.0f);
 
-	//sample = tCycleTick(sine) * 0.5f * pedal;
 
-	 */
 	return sample;
 
 }
