@@ -8,6 +8,7 @@
  */
 
 #include "LCD.h"
+#include "main.h"
 //#include "math.h"
 
 uint16_t lcd_i2cDataSize = 3;

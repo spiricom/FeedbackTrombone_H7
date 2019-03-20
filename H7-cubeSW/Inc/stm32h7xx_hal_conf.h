@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; COPYRIGHT(c) 2018 STMicroelectronics</center></h2>
+  * <h2><center>&copy; COPYRIGHT(c) 2019 STMicroelectronics</center></h2>
   *
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
@@ -41,8 +41,6 @@
 #ifdef __cplusplus
  extern "C" {
 #endif
-
-#include "main.h"
 
 /* Exported types ------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
@@ -171,7 +169,7 @@
 #define  VDD_VALUE                    ((uint32_t)3300U) /*!< Value of VDD in mv */
 #define  TICK_INT_PRIORITY            ((uint32_t)0U) /*!< tick interrupt priority */
 #define  USE_RTOS                     0U
-
+#define  USE_SD_TRANSCEIVER           1U               /*!< use uSD Transceiver */
 /* ########################## Assert Selection ############################## */
 /**
   * @brief Uncomment the line below to expanse the "assert_param" macro in the 

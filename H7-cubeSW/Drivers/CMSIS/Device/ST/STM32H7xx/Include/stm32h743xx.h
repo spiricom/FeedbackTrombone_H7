@@ -1977,6 +1977,9 @@ typedef struct
 /* Legacy define */
 #define FLASH_BASE                FLASH_BANK1_BASE
 
+/*!< Device electronic signature memory map */
+#define UID_BASE                  (0x1FF1E800UL)         /*!< Unique device ID register base address */
+
 
 /*!< Peripheral memory map */
 #define D2_APB1PERIPH_BASE        PERIPH_BASE

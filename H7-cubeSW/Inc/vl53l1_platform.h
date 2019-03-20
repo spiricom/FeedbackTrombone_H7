@@ -36,6 +36,7 @@
 #ifndef _VL53L1_PLATFORM_H_
 #define _VL53L1_PLATFORM_H_
 #include "stm32h7xx_hal.h"
+#include "main.h"
 
 //#include "vl53l1_ll_def.h"
 #include "vl53l1_platform_log.h"
