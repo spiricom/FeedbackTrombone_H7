@@ -49,7 +49,7 @@ float mPerVal;
 
 
 tSawtooth osc;
-tRamp adc[5];
+tRamp adc[6];
 tRamp slideRamp;
 tRamp finalFreqRamp;
 
@@ -69,7 +69,7 @@ tCrusher crush;
 
 float breath_baseline = 0.0f;
 float breath_mult = 0.0f;
-
+float testVal = 0.0f;
 uint16_t knobValue;
 
 uint16_t slideValue;
@@ -161,7 +161,7 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	tRamp_init(&qRamp, 10, 1);
 
 	tRamp_init(&adc[ADCJoyY], 18, 1);
-	tRamp_init(&adc[ADCKnob], 5, 1);
+	tRamp_init(&adc[ADCKnob], 18, AUDIO_FRAME_SIZE);
 	tRamp_init(&adc[ADCPedal], 18, 1);
 	tRamp_init(&adc[ADCBreath], 1, 1);
 	tRamp_init(&adc[ADCSlide], 20, AUDIO_FRAME_SIZE);
@@ -378,7 +378,10 @@ float audioTickSynth(float audioIn)
 
 
 	sample = audioIn;
-
+	sample *= LEAF_clip(0.0f,(tRamp_tick(&adc[ADCKnob]) - .1f) ,1.0f);
+	//sample = tCycle_tick(&sine) * LEAF_clip(0.0f,(tRamp_tick(&adc[ADCKnob]) - .1f) ,1.0f) ;
+	testVal = tRamp_tick(&adc[ADCKnob]);
+	//tCycle_setFreq(&sine, (testVal * 50.0f) + 100.0f);
 	return sample;
 }
 

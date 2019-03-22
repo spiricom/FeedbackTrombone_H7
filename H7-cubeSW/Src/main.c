@@ -58,7 +58,6 @@
 #include "sai.h"
 #include "spi.h"
 #include "tim.h"
-#include "usb_host.h"
 #include "gpio.h"
 #include "lcd.h"
 //#include "VL53L1X.h"
@@ -225,11 +224,12 @@ int main(void)
 	 LCD_home(&hi2c4);
 
 	 LCD_sendInteger(&hi2c4, intHarmonic, 2);
+
 	 LCD_sendChar(&hi2c4, ' ');
 	 LCD_sendChar(&hi2c4, ' ');
 	 //LCD_sendFixedFloat(&hi2c2, dist, 3, 1);
 
-	 LCD_sendInteger(&hi2c4, myADC[1], 5);
+	 LCD_sendFixedFloat(&hi2c4, testVal, 3, 1);
 	 //button1
 	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_13))
 	{
