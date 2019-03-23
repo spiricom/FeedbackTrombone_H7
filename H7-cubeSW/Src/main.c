@@ -59,12 +59,12 @@
 #include "spi.h"
 #include "tim.h"
 #include "gpio.h"
-#include "lcd.h"
-//#include "VL53L1X.h"
+
 
 /* USER CODE BEGIN Includes */
 #include "audiostream.h"
-
+#include "lcd.h"
+#include "vl53L1_platform.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -76,13 +76,25 @@
 uint16_t myADC[NUM_ADC_CHANNELS] __ATTR_RAM_D2;
 
 uint32_t counter = 0;
-
-
+VL53L1_Dev_t dev;
+int status=0;
+volatile int IntCount;
+#define isInterrupt 0 /* If isInterrupt = 1 then device working in interrupt mode, else device working in polling mode */
+uint8_t byteData, sensorState=0;
+uint16_t wordData;
+uint8_t ToFSensor = 1; // 0=Left, 1=Center(default), 2=Right
+uint16_t Distance;
+uint16_t SignalRate;
+uint16_t AmbientRate;
+uint8_t RangeStatus;
+uint8_t dataReady;
+int16_t offset;
+uint16_t xtalk;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void MX_USB_HOST_Process(void);
+
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -198,6 +210,30 @@ int main(void)
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
 
+	 LCD_sendChar(&hi2c4, 'W');
+	 LCD_sendChar(&hi2c4, 'O');
+	 LCD_sendChar(&hi2c4, 'O');
+
+	  dev.I2cHandle = &hi2c4;
+	  dev.I2cDevAddr = 0x52;
+
+	  while(sensorState==0)
+	      {
+	      	status = VL53L1X_BootState(dev, &sensorState);
+	      	HAL_Delay(2);
+	      }
+	      status = VL53L1X_SensorInit(dev);
+	        status = VL53L1X_SetDistanceMode(dev, 1); /* 1=short, 2=long */
+	        status = VL53L1X_SetTimingBudgetInMs(dev, 20); /* in ms possible values [20, 50, 100, 200, 500] */
+	        status = VL53L1X_SetInterMeasurementInMs(dev, 20);
+	        	//status = VL53L1X_CalibrateOffset(dev, 140, &offset); /* may take few second to perform the offset cal*/
+	        	//HAL_Delay(4000);
+	        	//status = VL53L1X_CalibrateXtalk(dev, 1400, &xtalk);
+	        	//HAL_Delay(4000);
+	        //HAL_Delay(1000);
+	      status = VL53L1X_StartRanging(dev);
+
+
 	//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); //led white
   /* USER CODE END 2 */
 
@@ -219,11 +255,13 @@ int main(void)
 	  // [3] = joy Y
 	  // [4] = pedal
 	  // [5] = knob
+  	  status = VL53L1X_GetDistance(dev, &Distance);
+
 
 	 HAL_Delay(10);
 	 LCD_home(&hi2c4);
 
-	 LCD_sendInteger(&hi2c4, intHarmonic, 2);
+	 LCD_sendInteger(&hi2c4, Distance, 5);
 
 	 LCD_sendChar(&hi2c4, ' ');
 	 LCD_sendChar(&hi2c4, ' ');
