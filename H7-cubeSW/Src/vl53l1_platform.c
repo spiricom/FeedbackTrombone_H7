@@ -71,14 +71,14 @@
 #   define VL53L1_PutI2cBus(...) (void)0
 #endif
 
-uint8_t _I2CBuffer[8] __ATTR_RAM_D2;
-uint8_t _I2CBufferRX[8] __ATTR_RAM_D2;
+uint8_t _I2CBuffer[8] __ATTR_RAM_D3;
+uint8_t _I2CBufferRX[8] __ATTR_RAM_D3;
 
 int _I2CWrite(VL53L1_DEV Dev, uint8_t *pdata, uint32_t count) {
     int status;
     int i2c_time_out = I2C_TIME_OUT_BASE+ count* I2C_TIME_OUT_BYTE;
 
-    status = HAL_I2C_Master_Transmit(Dev->I2cHandle, Dev->I2cDevAddr, pdata, count, i2c_time_out);
+    status = HAL_I2C_Master_Transmit_DMA(Dev->I2cHandle, Dev->I2cDevAddr, pdata, count);
     if (status) {
         //VL6180x_ErrLog("I2C error 0x%x %d len", dev->I2cAddr, len);
         //XNUCLEO6180XA1_I2C1_Init(&hi2c1);
@@ -91,7 +91,7 @@ int _I2CRead(VL53L1_DEV Dev, uint8_t *pdata, uint32_t count) {
     int status;
     int i2c_time_out = I2C_TIME_OUT_BASE+ count* I2C_TIME_OUT_BYTE;
 
-    status = HAL_I2C_Master_Receive(Dev->I2cHandle, Dev->I2cDevAddr|1, pdata, count, i2c_time_out);
+    status = HAL_I2C_Master_Receive_DMA(Dev->I2cHandle, Dev->I2cDevAddr|1, pdata, count);
     if (status) {
         //VL6180x_ErrLog("I2C error 0x%x %d len", dev->I2cAddr, len);
         //XNUCLEO6180XA1_I2C1_Init(&hi2c1);
@@ -227,7 +227,7 @@ VL53L1_Error VL53L1_RdByte(VL53L1_DEV Dev, uint16_t index, uint8_t *data) {
         Status = VL53L1_ERROR_CONTROL_INTERFACE;
         goto done;
     }
-    status_int = _I2CRead(Dev, data, 1);
+    status_int = _I2CRead(Dev, _I2CBufferRX, 1);
     if (status_int != 0) {
         Status = VL53L1_ERROR_CONTROL_INTERFACE;
     }
@@ -250,13 +250,13 @@ VL53L1_Error VL53L1_RdWord(VL53L1_DEV Dev, uint16_t index, uint16_t *data) {
         Status = VL53L1_ERROR_CONTROL_INTERFACE;
         goto done;
     }
-    //HAL_Delay(1);
+    HAL_Delay(1);
     status_int = _I2CRead(Dev, _I2CBuffer, 2);
     if (status_int != 0) {
         Status = VL53L1_ERROR_CONTROL_INTERFACE;
         goto done;
     }
-    //HAL_Delay(1);
+    HAL_Delay(1);
     *data = ((uint16_t)_I2CBuffer[0]<<8) + (uint16_t)_I2CBuffer[1];
 done:
     VL53L1_PutI2cBus();

@@ -238,13 +238,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-
-
-
-
-
-
 	  //ADC values are =
 	  // [0] = joystick x
 	  // [1] = breath
@@ -252,10 +245,9 @@ int main(void)
 	  // [3] = joy Y
 	  // [4] = pedal
 	  // [5] = knob
-  	  status = VL53L1X_GetDistance(dev, &Distance);
+  	 status = VL53L1X_GetDistance(dev, &Distance);
 
-
-	 //HAL_Delay(10);
+	 HAL_Delay(10);
 	 LCD_home(&hi2c4);
 
 	 LCD_sendInteger(&hi2c4, Distance, 5);
@@ -488,6 +480,46 @@ void MPU_Conf(void)
 
 
 
+
+	  ///next
+
+	  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+
+	  //D2 Domain�SRAM1
+	  MPU_InitStruct.BaseAddress = 0x38000000;
+	  // Increased region size to 256k. In Keshikan's code, this was 512 bytes (that's all that application needed).
+	  // Each audio buffer takes up the frame size * 8 (16 bits makes it *2 and stereo makes it *2 and double buffering makes it *2)
+	  // So a buffer size for read/write of 4096 would take up 64k = 4096*8 * 2 (read and write).
+	  // I increased that to 256k so that there would be room for the ADC knob inputs and other peripherals that might require DMA access (for instance the OLED screen).
+	  // we have a total of 256k in SRAM1 (128k, 0x30000000-0x30020000) and SRAM2 (128k, 0x30020000-0x3004000) of D2 domain.
+		// There is an SRAM3 in D2 domain as well (32k, 0x30040000-0x3004800) that is currently not mapped by the MPU (memory protection unit) controller.
+
+	  MPU_InitStruct.Size = MPU_REGION_SIZE_64KB;
+
+	  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+
+	  //AN4838
+	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+	  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+	  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+	  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+
+	  //Shared Device
+//	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+//	  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+//	  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+//	  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+
+
+	  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+
+	  MPU_InitStruct.SubRegionDisable = 0x00;
+
+
+	  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+
+
+	  HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
 	  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }

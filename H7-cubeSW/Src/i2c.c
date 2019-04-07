@@ -104,7 +104,7 @@ void MX_I2C4_Init(void)
   hi2c4.Init.Timing = 0x10c0ecff;//100k
   hi2c4.Init.OwnAddress1 = 0;
   hi2c4.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c4.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c4.Init.DualAddressMode = I2C_DUALADDRESS_ENABLE;
   hi2c4.Init.OwnAddress2 = 0;
   hi2c4.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c4.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
@@ -187,7 +187,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     hdma_i2c4_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
     hdma_i2c4_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
     hdma_i2c4_rx.Init.Mode = DMA_NORMAL;
-    hdma_i2c4_rx.Init.Priority = DMA_PRIORITY_LOW;
+    hdma_i2c4_rx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
     if (HAL_DMA_Init(&hdma_i2c4_rx) != HAL_OK)
     {
       _Error_Handler(__FILE__, __LINE__);
@@ -204,7 +204,7 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
     hdma_i2c4_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
     hdma_i2c4_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
     hdma_i2c4_tx.Init.Mode = DMA_NORMAL;
-    hdma_i2c4_tx.Init.Priority = DMA_PRIORITY_LOW;
+    hdma_i2c4_tx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
     if (HAL_DMA_Init(&hdma_i2c4_tx) != HAL_OK)
     {
       _Error_Handler(__FILE__, __LINE__);

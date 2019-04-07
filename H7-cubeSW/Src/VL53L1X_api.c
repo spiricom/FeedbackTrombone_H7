@@ -514,13 +514,15 @@ VL53L1X_ERROR VL53L1X_GetInterMeasurementInMs(VL53L1_Dev_t dev, uint16_t *pIM)
 	return status;
 }
 
+uint8_t tmpRX[1] __ATTR_RAM_D3;
 VL53L1X_ERROR VL53L1X_BootState(VL53L1_Dev_t dev, uint8_t *state)
 {
 	VL53L1X_ERROR status = 0;
-	uint8_t tmp = 0;
 
-	status = VL53L1_RdByte(&dev,VL53L1_FIRMWARE__SYSTEM_STATUS, &tmp);
-	*state = tmp;
+
+	status = VL53L1_RdByte(&dev,VL53L1_FIRMWARE__SYSTEM_STATUS, &tmpRX);
+
+	*state = _I2CBufferRX[0];
 	return status;
 }
 

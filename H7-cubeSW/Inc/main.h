@@ -71,6 +71,7 @@
 
 #define __ATTR_RAM_D2	__attribute__ ((section(".RAM_D2"))) __attribute__ ((aligned (32)))
 
+#define __ATTR_RAM_D3	__attribute__ ((section(".RAM_D3"))) __attribute__ ((aligned (32)))
 
 float randomNumber(void);
 /* USER CODE END Private defines */
