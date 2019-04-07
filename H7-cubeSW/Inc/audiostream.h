@@ -78,6 +78,8 @@ extern FTMode ftMode;
 extern KnobMode kMode;
 extern tRamp adc[6];
 
+extern uint16_t Distance;
+
 extern float intHarmonic;
 extern float floatHarmonic;
 extern float fundamental;

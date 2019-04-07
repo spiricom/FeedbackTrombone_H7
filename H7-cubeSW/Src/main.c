@@ -83,7 +83,7 @@ volatile int IntCount;
 uint8_t byteData, sensorState=0;
 uint16_t wordData;
 uint8_t ToFSensor = 1; // 0=Left, 1=Center(default), 2=Right
-uint16_t Distance;
+
 uint16_t SignalRate;
 uint16_t AmbientRate;
 uint8_t RangeStatus;
@@ -210,10 +210,6 @@ int main(void)
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
 
-	 LCD_sendChar(&hi2c4, 'W');
-	 LCD_sendChar(&hi2c4, 'O');
-	 LCD_sendChar(&hi2c4, 'O');
-
 	  dev.I2cHandle = &hi2c4;
 	  dev.I2cDevAddr = 0x52;
 
@@ -223,6 +219,7 @@ int main(void)
 	      	HAL_Delay(2);
 	      }
 	      status = VL53L1X_SensorInit(dev);
+	      status =  VL53L1X_SetROI(dev, 4, 4);
 	        status = VL53L1X_SetDistanceMode(dev, 1); /* 1=short, 2=long */
 	        status = VL53L1X_SetTimingBudgetInMs(dev, 20); /* in ms possible values [20, 50, 100, 200, 500] */
 	        status = VL53L1X_SetInterMeasurementInMs(dev, 20);
@@ -258,7 +255,7 @@ int main(void)
   	  status = VL53L1X_GetDistance(dev, &Distance);
 
 
-	 HAL_Delay(10);
+	 //HAL_Delay(10);
 	 LCD_home(&hi2c4);
 
 	 LCD_sendInteger(&hi2c4, Distance, 5);
