@@ -19,6 +19,8 @@ extern "C" {
 
 #include "leaf-globals.h"
 #include "leaf-math.h"
+#include "leaf-filter.h"
+#include "leaf-delay.h"
 
 // ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
@@ -69,6 +71,133 @@ float   tRamp_sample    (tRamp* const);
 int     tRamp_setTime   (tRamp* const, float time);
 int     tRamp_setDest   (tRamp* const, float dest);
 int     tRamp_setVal    (tRamp* const, float val);
+
+// ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+
+/* Exponential Smoother */
+typedef struct _tExpSmooth {
+    float factor, oneminusfactor;
+    float curr,dest;
+
+} tExpSmooth;
+
+void    tExpSmooth_init      (tExpSmooth* const, float val, float factor);
+void    tExpSmooth_free      (tExpSmooth* const);
+
+float   tExpSmooth_tick      (tExpSmooth* const);
+float   tExpSmooth_sample    (tExpSmooth* const);
+int     tExpSmooth_setFactor   (tExpSmooth* const, float factor);
+int     tExpSmooth_setDest   (tExpSmooth* const, float dest);
+int     tExpSmooth_setVal    (tExpSmooth* const, float val);
+
+// ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+
+/* PowerEnvelopeFollower */
+typedef struct _tPwrFollow {
+    float factor, oneminusfactor;
+    float curr;
+
+} tPwrFollow;
+
+void    tPwrFollow_init      (tPwrFollow* const, float factor);
+void    tPwrFollow_free      (tPwrFollow* const);
+
+float   tPwrFollow_tick      (tPwrFollow* const, float input);
+float   tPwrFollow_sample    (tPwrFollow* const);
+int     tPwrFollow_setFactor   (tPwrFollow* const, float factor);
+
+// ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+
+/* Feedback leveller */
+// An auto VCA that you put into a feedback circuit to make it stay at the same level.
+// It can enforce level bidirectionally (amplifying and attenuating as needed) or
+// just attenutating. The former option allows for infinite sustain strings, for example, while
+// The latter option allows for decaying strings, which can never exceed
+// a specific level.
+
+typedef struct _tFBleveller {
+    float targetLevel;	// target power level
+    float strength;		// how strongly level difference affects the VCA
+    int	  mode;			// 0 for upwards limiting only, 1 for biderctional limiting
+    float curr;
+    tPwrFollow pwrFlw;	// internal power follower needed for level tracking
+
+} tFBleveller;
+
+void    tFBleveller_init      (tFBleveller* const, float targetLevel, float factor, float strength, int mode);
+void    tFBleveller_free      (tFBleveller* const);
+
+float   tFBleveller_tick      (tFBleveller* const, float input);
+float   tFBleveller_sample    (tFBleveller* const);
+int     tFBleveller_setTargetLevel   (tFBleveller* const, float TargetLevel);
+int     tFBleveller_setFactor   (tFBleveller* const, float factor);
+int     tFBleveller_setMode   (tFBleveller* const, int mode); // 0 for upwards limiting only, 1 for biderctional limiting
+int     tFBleveller_setStrength   (tFBleveller* const, float strength);
+
+// ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+
+/* Simple Living String */
+typedef struct _tSimpleLivingString {
+	float freq, waveLengthInSamples;		// the frequency of the string, determining delay length
+	float dampFreq;	// frequency for the bridge LP filter, in Hz
+	float decay; // amplitude damping factor for the string (only active in mode 0)
+	float levMode;
+	float curr;
+	tDelayL delayLine;
+	tOnePole bridgeFilter;
+	tHighpass DCblocker;
+	tFBleveller fbLev;
+	tExpSmooth wlSmooth;
+} tSimpleLivingString;
+
+void    tSimpleLivingString_init      (tSimpleLivingString* const, float freq, float dampFreq, float decay, float targetLev, float levSmoothFactor, float levStrength, int levMode);
+void    tSimpleLivingString_free      (tSimpleLivingString* const);
+float   tSimpleLivingString_tick      (tSimpleLivingString* const, float input);
+float   tSimpleLivingString_sample    (tSimpleLivingString* const);
+int     tSimpleLivingString_setFreq   			(tSimpleLivingString* const, float freq);
+int     tSimpleLivingString_setWaveLength		(tSimpleLivingString* const, float waveLength); // in samples
+int     tSimpleLivingString_setDampFreq   		(tSimpleLivingString* const, float dampFreq);
+int     tSimpleLivingString_setDecay     		(tSimpleLivingString* const, float decay); // should be near 1.0
+int     tSimpleLivingString_setTargetLev		(tSimpleLivingString* const, float targetLev);
+int     tSimpleLivingString_setLevSmoothFactor  (tSimpleLivingString* const, float levSmoothFactor);
+int     tSimpleLivingString_setLevStrength		(tSimpleLivingString* const, float levStrength);
+int     tSimpleLivingString_setLevMode		(tSimpleLivingString* const, int levMode);
+
+
+// ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
+
+/* Living String */
+typedef struct _tLivingString {
+	float freq, waveLengthInSamples;		// the frequency of the whole string, determining delay length
+	float pickPos;	// the pick position, dividing the string in two, in ratio
+	float prepIndex;	// the amount of pressure on the pickpoint of the string (near 0=soft obj, near 1=hard obj)
+	float dampFreq;	// frequency for the bridge LP filter, in Hz
+	float decay; // amplitude damping factor for the string (only active in mode 0)
+	float levMode;
+	float curr;
+	tDelayL delLF,delUF,delUB,delLB;	// delay for lower/upper/forward/backward part of the waveguide model
+	tOnePole bridgeFilter, nutFilter, prepFilterU, prepFilterL;
+	tHighpass DCblockerL, DCblockerU;
+	tFBleveller fbLevU, fbLevL;
+	tExpSmooth wlSmooth, ppSmooth;
+} tLivingString;
+
+void    tLivingString_init      (tLivingString* const, float freq, float pickPos, float prepIndex, float dampFreq, float decay,
+												float targetLev, float levSmoothFactor, float levStrength, int levMode);
+void    tLivingString_free      (tLivingString* const);
+float   tLivingString_tick      (tLivingString* const, float input);
+float   tLivingString_sample    (tLivingString* const);
+int     tLivingString_setFreq   			(tLivingString* const, float freq);
+int     tLivingString_setWaveLength			(tLivingString* const, float waveLength); // in samples
+int     tLivingString_setPickPos   			(tLivingString* const, float pickPos);
+int     tLivingString_setPrepIndex 			(tLivingString* const, float prepIndex);
+int     tLivingString_setDampFreq   		(tLivingString* const, float dampFreq);
+int     tLivingString_setDecay     			(tLivingString* const, float decay); // should be near 1.0
+int     tLivingString_setTargetLev			(tLivingString* const, float targetLev);
+int     tLivingString_setLevSmoothFactor  	(tLivingString* const, float levSmoothFactor);
+int     tLivingString_setLevStrength		(tLivingString* const, float levStrength);
+int     tLivingString_setLevMode			(tLivingString* const, int levMode);
+
 
 // ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 

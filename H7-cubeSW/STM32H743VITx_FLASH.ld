@@ -163,6 +163,7 @@ SECTIONS
     . = ALIGN(4);
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
+
   } >RAM_D1 
 
   /* User_heap_stack section, used to check that there is enough RAM left */
@@ -177,18 +178,23 @@ SECTIONS
   } >RAM_D1 
 
 
+
+
+
 	/*from https://community.st.com/message/171291-re-stm32h7stm32h743-adc-with-dma?commentID=171291#comment-171291*/
-	  .RAM_D2 :
+	  .RAM_D2 (NOLOAD):
   {
         KEEP(*(.RAM_D2)) 
+        
   } >RAM_D2
 
 
  /* AHB SRAM (D3 domain): AHB SRAM4 */
 
- .RAM_D3 :
+ .RAM_D3 (NOLOAD):
   {
-        KEEP(*(.RAM_D3)) /* ORIGIN = 0x38000000, LENGTH = 64K */
+       KEEP(*(.RAM_D3)) /* ORIGIN = 0x38000000, LENGTH = 64K */
+       
   } >RAM_D3
 	
 

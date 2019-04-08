@@ -3,12 +3,13 @@
 #include "main.h"
 #include "codec.h"
 
-#define ADCJoyY 3
-#define ADCJoyX 0
-#define ADCKnob 5
-#define ADCPedal 4
-#define ADCBreath 1
-#define ADCSlide 2
+#define ADCJoyY 0
+#define ADCJoyX 1
+#define ADCBreath 2
+#define ADCPedal 3
+#define ADCKnob 4
+#define ADCSlide 5
+
 
 #define NUM_HARMONICS 16.0f
 
@@ -56,7 +57,7 @@ HAL_StatusTypeDef transmit_status;
 HAL_StatusTypeDef receive_status;
 
 float LN2;
-float amp_mult = 0.75f;
+float amp_mult = 1.5f;
 
 float valPerM;
 float mPerVal;
@@ -79,10 +80,17 @@ tDelayL correctionDelay;
 
 tCompressor compressor;
 
+tHighpass breathMicHP;
 tEnvelopeFollower follower;
 tCrusher crush;
 
 tHighpass dcBlock;
+
+tFBleveller leveller;
+tPwrFollow follow;
+
+tSimpleLivingString string;
+
 
 float breath_baseline = 0.0f;
 float breath_mult = 0.0f;
@@ -144,6 +152,9 @@ float audioTickSynthL(float audioIn);
 float audioTickSynthR(float audioIn);
 float audioTickFeedbackL(float audioIn);
 float audioTickFeedbackR(float audioIn);
+void metering(float audioIn);
+static void calculatePeaks(void);
+static int additionalDelay(float Tfreq);
 
 //ADC values are =
 // [0] = joystick x
@@ -173,6 +184,10 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	tSawtooth_init(&osc);
 	tSawtooth_setFreq(&osc, 200.f);
 
+	tHighpass_init(&breathMicHP, 500.0f);
+	tFBleveller_init(&leveller, 0.0f, 0.01f, 0.01f, 1);
+	tPwrFollow_init(&follow, .06f);
+	tSimpleLivingString_init(&string, 440.0f, 9000.0f, 100.0f, 0.0f, 0.01f, 0.2f, 1);
 
 	for (int i = 0; i < NUM_BANDPASSES; i++)
 	{
@@ -188,11 +203,11 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	tHighpass_init(&dcBlock, 100.0f);
 	tRamp_init(&qRamp, 10, 1);
 
-	tRamp_init(&adc[ADCJoyY], 500, 1);
-	tRamp_init(&adc[ADCKnob], 100, AUDIO_FRAME_SIZE);
-	tRamp_init(&adc[ADCPedal], 18, 1);
-	tRamp_init(&adc[ADCBreath], 1, 1);
-	tRamp_init(&adc[ADCSlide], 100, 1);
+	tRamp_init(&adc[ADCJoyY], 5, 1);
+	tRamp_init(&adc[ADCKnob], 20, AUDIO_FRAME_SIZE);
+	tRamp_init(&adc[ADCPedal], 20, 1);
+	tRamp_init(&adc[ADCBreath], 10, 1);
+	tRamp_init(&adc[ADCSlide], 10, AUDIO_FRAME_SIZE);
 	tRamp_init(&adc[ADCJoyX], 20, 1);
 	/*
 	compressor = tCompressorInit();
@@ -208,7 +223,7 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 
 	tEnvelopeFollower_init(&follower, 0.05f, 0.99999f);
 
-	tRamp_init(&slideRamp, 20, 1);
+	tRamp_init(&slideRamp, 5, 1);
 	tRamp_init(&finalFreqRamp, 5, 1);
 
 	breath_baseline = ((adcVals[ADCBreath] * INV_TWO_TO_16) + 0.1f);
@@ -219,7 +234,7 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 
 	tCrusher_init(&crush);
 	// right shift 4 because our valPerM measure is originally from 12 bit data. now we are using 16 bit adc for controller input, so scaling was all off.
-	firstPositionValue = adcVals[ADCSlide] >> 4;
+	//firstPositionValue = adcVals[ADCSlide] >> 4;
 	tRamp_setVal(&slideRamp, firstPositionValue);
 
 	tSVF_init(&filter1, SVFTypeBandpass, 2000.0f, 1000.0f);
@@ -259,14 +274,14 @@ void audioFrame(uint16_t buffer_offset)
 	tRamp_setDest(&adc[ADCJoyY], 1.0f - ((adcVals[ADCJoyY] * INV_TWO_TO_16) - 0.366f) * 3.816f);
 	tRamp_setDest(&adc[ADCJoyX], 1.0f - ((adcVals[ADCJoyX] * INV_TWO_TO_16) - 0.366f) * 3.816f);
 	tRamp_setDest(&adc[ADCSlide], (float)Distance);
-	// right shift 4 because our valPerM measure is originally from 12 bit data. now we are using 16 bit adc for controller input, so scaling was all off.
-	//tRamp_setDest(&adc[ADCSlide], adcVals[ADCSlide] >> 4);
+
 	position = tRamp_tick(&adc[ADCSlide]);
 
 	//slideLengthDiff = (position - firstPositionValue) * mPerVal * slide_tune;
 	//slideLengthM = (position - firstPositionValue) * mPerVal;
-	//slideLengthPreRamp = fundamental_m + slideLengthDiff;
-	//tRamp_setDest(&slideRamp, slideLengthPreRamp);
+
+	slideLengthPreRamp = fundamental_m + (position * .001f); // mm to M is /1000
+	tRamp_setDest(&slideRamp, slideLengthPreRamp);
 
 	if (ftMode == FTFeedback)
 	{
@@ -306,6 +321,201 @@ void audioFrame(uint16_t buffer_offset)
 
 }
 
+float Lin = 0.0f;
+float Rin = 0.0f;
+
+float audioTickFeedbackL(float audioIn)
+{
+	Lin = audioIn * 1.0f;
+	metering(audioIn * 1.0f);
+	///float pedal = tRamp_tick(&adc[ADCPedal]);
+	//pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
+
+	breath = adcVals[ADCBreath];
+	breath = breath * INV_TWO_TO_16;
+	breath = breath - breath_baseline;
+	breath = breath * breath_mult;
+	breath *= amp_mult;
+
+	if (breath < 0.0f)					breath = 0.0f;
+	else if (breath > 1.0f)		  breath = 1.0f;
+
+	tRamp_setDest(&adc[ADCBreath], breath);
+
+	rampedBreath = tRamp_tick(&adc[ADCBreath]);
+	//sample = tSawtooth_tick(&osc) * rampedBreath;
+
+	calculatePeaks();
+
+
+	sample = Lin;
+
+	//tCycle_setFreq(&sine, tRamp_tick(&adc[ADCSlide]) + 50.0f);
+
+	testVal = LEAF_clip(0.0, ((tRamp_tick(&adc[ADCKnob]) * 1.2f) - .1f), 1.0f);
+
+
+	//sample = audioIn * testVal * 30.0f;
+	sample = tHighpass_tick(&dcBlock, sample * 2.0f);
+
+	tFBleveller_setTargetLevel(&leveller, testVal * rampedBreath);
+
+	sample = LEAF_softClip(sample * testVal * rampedBreath, .6f);
+	float myQ = LEAF_clip(0.75f, ((tRamp_tick(&adc[ADCJoyX]) * 10.0f) + 0.5f), 10.0f);
+	tSVF_setQ(&filter1, myQ);
+	tSVF_setFreq(&filter1, floatPeak);
+	sample = tSVF_tick(&filter1, sample);
+	sample = tFBleveller_tick(&leveller, sample);
+
+
+
+	// Delay correction
+		newTestDelay = (float) additionalDelay(intPeak) + 3.0f;//+ (pedal * 16.0f);// + delayValueCorrection(slideLengthM);
+		tRamp_setDest(&correctionRamp, newTestDelay);
+
+		tDelayL_setDelay(&correctionDelay, tRamp_tick(&correctionRamp));
+
+		sample = tDelayL_tick(&correctionDelay, sample);
+
+
+	/*
+	sample = 0.0f;
+
+	calculatePeaks();
+
+	tRampSetDest(finalFreqRamp, intPeak);
+
+	knob = tRampTick(adc[ADCKnob]);
+
+	Q = OOPS_clip(0.5f, (knob - 0.1) * 300.0f, 300.0);
+
+	tRampSetDest(qRamp, Q);
+
+	tSVFSetQ(filter1, tRampTick(qRamp));
+
+
+	breath = adcVals[ADCBreath];
+	breath = breath * INV_TWO_TO_16;
+	breath = breath - breath_baseline;
+	breath = breath * breath_mult;
+	breath *= amp_mult;
+
+	if (breath < 0.0f)					breath = 0.0f;
+	else if (breath > 1.0f)		  breath = 1.0f;
+
+	tRampSetDest(adc[ADCBreath], breath);
+
+	rampedBreath = tRampTick(adc[ADCBreath]);
+
+	tSVFSetFreq(filter1, tRampTick(finalFreqRamp));
+
+	sample = tSVFTick(filter1, audioIn);
+
+	//sample = tCompressorTick(compressor, sample);
+
+	// Delay correction
+	newTestDelay = (float) additionalDelay(intPeak) + (pedal * 256.0f);// + delayValueCorrection(slideLengthM);
+	tRampSetDest(correctionRamp, newTestDelay);
+
+	tDelayLSetDelay(correctionDelay, tRampTick(correctionRamp));
+
+	sample = tDelayLTick(correctionDelay, sample);
+
+
+	sample *= rampedBreath;
+
+	//sample *= pedal;
+
+	//sample = OOPS_clip(-1.0f, sample * 20.0f, 1.0f);
+	//sample *= 0.1f;
+*/
+	//sample = tCycle_tick(&sine) * 0.5f * pedal;
+	//sample = audioIn;
+	//sample = 0.0f;
+	//sample *= 0.9f;
+	//sample *= tHighpass_tick(&breathMicHP, Rin * 1.0f);
+	//sample = 	tCycle_tick(&sine) * testVal;
+		sample *= 1.0f;
+		//sample = audioTickSynthL(sample) * 0.5f;
+		sample *= rampedBreath;
+	sample = 	LEAF_clip(-1.0f, sample, 1.0f);
+
+	return sample;
+
+}
+
+float audioTickFeedbackR(float audioIn)
+{
+	Rin = audioIn;
+	//sample = audioIn;
+	//sample = 0.0f;
+	return sample;
+}
+
+float slideLengthPostRamp;
+
+float audioTickSynthL(float audioIn)
+{
+
+	sample = 0.0f;
+
+
+	float pedal = tRamp_tick(&adc[ADCPedal]);
+	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
+
+	tSawtooth_setFreq(&osc, 200);
+	breath = adcVals[ADCBreath];
+	breath = breath * INV_TWO_TO_16;
+	breath = breath - breath_baseline;
+	breath = breath * breath_mult;
+	breath *= amp_mult;
+
+	if (breath < 0.0f)					breath = 0.0f;
+	else if (breath > 1.0f)		  breath = 1.0f;
+
+	tRamp_setDest(&adc[ADCBreath], breath);
+
+	rampedBreath = tRamp_tick(&adc[ADCBreath]);
+
+	calculatePeaks();
+
+
+	//sample = audioIn;
+
+	float myFreq = intPeak;
+
+	//tSawtooth_setFreq(&osc, myFreq);
+
+	testVal = LEAF_clip(0.0f, ((tRamp_tick(&adc[ADCKnob]) * 2.0f) - .1f), 1.0f);
+
+	//sample = (tSawtooth_tick(&osc) * testVal) * rampedBreath;
+	//sample = audioIn * testVal * 30.0f;
+	tSimpleLivingString_setTargetLev(&string, rampedBreath);
+	tSimpleLivingString_setDampFreq(&string, testVal * 6000.0f + 50.0f);
+	tSimpleLivingString_setFreq(&string, myFreq);
+	sample = (tSimpleLivingString_tick(&string, Rin * 0.1f));
+	sample = tHighpass_tick(&dcBlock, (sample * .9f) + (Rin * 0.1f));
+	return sample;
+}
+
+
+float audioTickSynthR(float audioIn)
+{
+	Rin = audioIn;
+	return sample;
+}
+
+
+
+
+
+////////////////////////
+
+
+
+
+
+
 //ADC values are =
 // [0] = joystick
 // [1] = knob
@@ -314,11 +524,44 @@ void audioFrame(uint16_t buffer_offset)
 // [4] = slide
 
 
+
+
+void metering(float audioIn)
+{
+
+	float myLevel = tPwrFollow_tick(&follow, audioIn);
+	if (myLevel > .99f)
+	{
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); //led white
+	}
+	else
+	{
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET); //led white
+	}
+	if (myLevel > .1f)
+	{
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
+	}
+	else
+	{
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET); //led Green
+	}
+	if (myLevel > .3f)
+	{
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
+	}
+	else
+	{
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET); //led amber
+	}
+}
+
+
 static void calculatePeaks(void)
 {
-	slideLength = tRamp_tick(&slideRamp);
-	float x = 12.0f * logf(slideLength / fundamental_m) * INV_LOG2;
-	fundamental = fundamental_hz * powf(2.0f, (-x * INV_TWELVE));
+	slideLengthPostRamp = tRamp_tick(&slideRamp);
+	float x = 12.0f * logf(slideLengthPostRamp / fundamental_m) * INV_LOG2;
+	fundamental = (fundamental_hz * 0.5f) * powf(2.0f, (-x * INV_TWELVE));
 
 	floatHarmonic = tRamp_tick(&adc[ADCJoyY]) * 2.0f - 1.0f;
 	floatHarmonic = (floatHarmonic < 0.0f) ? 1.0f : (floatHarmonic * NUM_HARMONICS + 1.0f);
@@ -368,6 +611,7 @@ static int additionalDelay(float Tfreq)
 	int period_in_samples = (SAMPLE_RATE / Tfreq);
 	return (period_in_samples - (SYSTEM_DELAY % period_in_samples));
 }
+
 
 float audioTickSynth(float audioIn)
 {
@@ -429,57 +673,8 @@ float audioTickSynth(float audioIn)
 }
 
 
-float audioTickSynthL(float audioIn)
-{
-
-	//metering
-	if ((audioIn > .99f) || (audioIn < -.99f))
-	{
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_SET); //led white
-	}
-	else
-	{
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, GPIO_PIN_RESET); //led white
-	}
-	if ((audioIn > .1f) || (audioIn < -.1f))
-	{
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
-	}
-	else
-	{
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET); //led Green
-	}
-	if ((audioIn > .3f) || (audioIn < -.3f))
-	{
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
-	}
-	else
-	{
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET); //led amber
-	}
-	sample = 0.0f;
 
 
-	//tCycle_setFreq(&sine, tRamp_tick(&adc[ADCSlide]) + 50.0f);
-
-	testVal = ((tRamp_tick(&adc[ADCKnob]) * 2.0f) - .1f);
-
-	//sample = audioIn * testVal * 30.0f;
-	sample = tHighpass_tick(&dcBlock, sample);
-	return sample;
-}
-
-float audioTickSynthR(float audioIn)
-{
-	//tCycle_setFreq(&sine, 440.0f);
-	tCycle_setFreq(&sine, tRamp_tick(&adc[ADCSlide]) + 50.0f);
-	testVal = ((tRamp_tick(&adc[ADCKnob]) * 2.0f) - .1f);
-	sample = tCycle_tick(&sine) * LEAF_clip(0.0f,(testVal - .1f) ,1.0f) ;
-
-	//sample = audioIn * testVal * 30.0f;
-	sample = tHighpass_tick(&dcBlock, sample);
-	return sample;
-}
 
 
 float knob, Q;
@@ -561,167 +756,6 @@ float audioTickFeedback(float audioIn)
 	return sample;
 
 }
-
-
-float audioTickFeedbackL(float audioIn)
-{
-
-	float pedal = tRamp_tick(&adc[ADCPedal]);
-	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
-
-	tSawtooth_setFreq(&osc, 200);
-	breath = adcVals[ADCBreath];
-	breath = breath * INV_TWO_TO_16;
-	breath = breath - breath_baseline;
-	breath = breath * breath_mult;
-	breath *= amp_mult;
-
-	if (breath < 0.0f)					breath = 0.0f;
-	else if (breath > 1.0f)		  breath = 1.0f;
-
-	tRamp_setDest(&adc[ADCBreath], breath);
-
-	rampedBreath = tRamp_tick(&adc[ADCBreath]);
-	sample = tSawtooth_tick(&osc) * rampedBreath;
-
-	/*
-	sample = 0.0f;
-
-	calculatePeaks();
-
-	tRampSetDest(finalFreqRamp, intPeak);
-
-	knob = tRampTick(adc[ADCKnob]);
-
-	Q = OOPS_clip(0.5f, (knob - 0.1) * 300.0f, 300.0);
-
-	tRampSetDest(qRamp, Q);
-
-	tSVFSetQ(filter1, tRampTick(qRamp));
-
-
-	breath = adcVals[ADCBreath];
-	breath = breath * INV_TWO_TO_16;
-	breath = breath - breath_baseline;
-	breath = breath * breath_mult;
-	breath *= amp_mult;
-
-	if (breath < 0.0f)					breath = 0.0f;
-	else if (breath > 1.0f)		  breath = 1.0f;
-
-	tRampSetDest(adc[ADCBreath], breath);
-
-	rampedBreath = tRampTick(adc[ADCBreath]);
-
-	tSVFSetFreq(filter1, tRampTick(finalFreqRamp));
-
-	sample = tSVFTick(filter1, audioIn);
-
-	//sample = tCompressorTick(compressor, sample);
-
-	// Delay correction
-	newTestDelay = (float) additionalDelay(intPeak) + (pedal * 256.0f);// + delayValueCorrection(slideLengthM);
-	tRampSetDest(correctionRamp, newTestDelay);
-
-	tDelayLSetDelay(correctionDelay, tRampTick(correctionRamp));
-
-	sample = tDelayLTick(correctionDelay, sample);
-
-
-	sample *= rampedBreath;
-
-	//sample *= pedal;
-
-	//sample = OOPS_clip(-1.0f, sample * 20.0f, 1.0f);
-	//sample *= 0.1f;
-*/
-	//sample = tCycle_tick(&sine) * 0.5f * pedal;
-	sample = audioIn;
-
-	return sample;
-
-}
-
-float audioTickFeedbackR(float audioIn)
-{
-/*
-	float pedal = tRamp_tick(&adc[ADCPedal]);
-	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
-
-	tSawtooth_setFreq(&osc, 200);
-	breath = adcVals[ADCBreath];
-	breath = breath * INV_TWO_TO_16;
-	breath = breath - breath_baseline;
-	breath = breath * breath_mult;
-	breath *= amp_mult;
-
-	if (breath < 0.0f)					breath = 0.0f;
-	else if (breath > 1.0f)		  breath = 1.0f;
-
-	tRamp_setDest(&adc[ADCBreath], breath);
-
-	rampedBreath = tRamp_tick(&adc[ADCBreath]);
-	sample = tSawtooth_tick(&osc) * rampedBreath;
-*/
-	/*
-	sample = 0.0f;
-
-	calculatePeaks();
-
-	tRampSetDest(finalFreqRamp, intPeak);
-
-	knob = tRampTick(adc[ADCKnob]);
-
-	Q = OOPS_clip(0.5f, (knob - 0.1) * 300.0f, 300.0);
-
-	tRampSetDest(qRamp, Q);
-
-	tSVFSetQ(filter1, tRampTick(qRamp));
-
-
-	breath = adcVals[ADCBreath];
-	breath = breath * INV_TWO_TO_16;
-	breath = breath - breath_baseline;
-	breath = breath * breath_mult;
-	breath *= amp_mult;
-
-	if (breath < 0.0f)					breath = 0.0f;
-	else if (breath > 1.0f)		  breath = 1.0f;
-
-	tRampSetDest(adc[ADCBreath], breath);
-
-	rampedBreath = tRampTick(adc[ADCBreath]);
-
-	tSVFSetFreq(filter1, tRampTick(finalFreqRamp));
-
-	sample = tSVFTick(filter1, audioIn);
-
-	//sample = tCompressorTick(compressor, sample);
-
-	// Delay correction
-	newTestDelay = (float) additionalDelay(intPeak) + (pedal * 256.0f);// + delayValueCorrection(slideLengthM);
-	tRampSetDest(correctionRamp, newTestDelay);
-
-	tDelayLSetDelay(correctionDelay, tRampTick(correctionRamp));
-
-	sample = tDelayLTick(correctionDelay, sample);
-
-
-	sample *= rampedBreath;
-
-	//sample *= pedal;
-
-	//sample = OOPS_clip(-1.0f, sample * 20.0f, 1.0f);
-	//sample *= 0.1f;
-*/
-	//sample = tCycle_tick(&sine) * 0.5f * pedal;
-	sample = audioIn;
-
-	return sample;
-
-}
-
-
 
 
 void HAL_SAI_ErrorCallback(SAI_HandleTypeDef *hsai)

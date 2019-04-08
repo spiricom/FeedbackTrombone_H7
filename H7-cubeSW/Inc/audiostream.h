@@ -104,7 +104,9 @@ extern float testDelay;
 extern float slide_tune;
 extern float slideLengthM;
 extern float intPeak;
-
+extern float rampedBreath;
+extern float slideLengthPreRamp;
+extern float slideLengthPostRamp;
 extern float Q;
 extern float dist;
 

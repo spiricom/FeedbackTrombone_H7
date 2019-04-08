@@ -72,7 +72,7 @@
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-#define NUM_ADC_CHANNELS 6
+#define NUM_ADC_CHANNELS 5
 uint16_t myADC[NUM_ADC_CHANNELS] __ATTR_RAM_D2;
 
 uint32_t counter = 0;
@@ -194,6 +194,7 @@ int main(void)
   uint32_t tempFPURegisterVal = __get_FPSCR();
   tempFPURegisterVal = (1<<24); // set the FTZ (flush-to-zero) bit in the FPU control register
   __set_FPSCR(tempFPURegisterVal);
+  HAL_Delay(100);
 
 	if (HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&myADC, NUM_ADC_CHANNELS) != HAL_OK)
 	{
@@ -207,8 +208,12 @@ int main(void)
 	HAL_Delay(100);
 	LCD_home(&hi2c4);
 
+
+
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET); //led Green
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET); //led amber
+
+
 
 	  dev.I2cHandle = &hi2c4;
 	  dev.I2cDevAddr = 0x52;
@@ -216,8 +221,11 @@ int main(void)
 	  while(sensorState==0)
 	      {
 	      	status = VL53L1X_BootState(dev, &sensorState);
+
 	      	HAL_Delay(2);
+
 	      }
+
 	      status = VL53L1X_SensorInit(dev);
 	      status =  VL53L1X_SetROI(dev, 4, 4);
 	        status = VL53L1X_SetDistanceMode(dev, 1); /* 1=short, 2=long */
@@ -246,26 +254,40 @@ int main(void)
 	  // [4] = pedal
 	  // [5] = knob
   	 status = VL53L1X_GetDistance(dev, &Distance);
-
+/*
 	 HAL_Delay(10);
 	 LCD_home(&hi2c4);
 
-	 LCD_sendInteger(&hi2c4, Distance, 5);
+	 //LCD_sendInteger(&hi2c4, Distance, 5);
+
+	 //LCD_sendChar(&hi2c4, ' ');
+	 //LCD_sendChar(&hi2c4, ' ');
+
+
+	 LCD_sendFixedFloat(&hi2c4, testVal, 2, 1);
+	 LCD_sendChar(&hi2c4, ' ');
+	 LCD_sendFixedFloat(&hi2c4, rampedBreath, 2, 1);
 
 	 LCD_sendChar(&hi2c4, ' ');
+	 LCD_sendFixedFloat(&hi2c4, slideLengthPostRamp, 3, 2);
 	 LCD_sendChar(&hi2c4, ' ');
-	 //LCD_sendFixedFloat(&hi2c2, dist, 3, 1);
+	 LCD_sendInteger(&hi2c4, intHarmonic, 2);
 
-	 LCD_sendFixedFloat(&hi2c4, testVal, 3, 1);
+
+	 LCD_setCursor(&hi2c4, 0x40);
+
+	 LCD_sendInteger(&hi2c4, myADC[3], 6);
+	 */
+
 	 //button1
 	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_13))
 	{
 		if (!isButtonOneDown)	buttonOneDown();
-		LCD_sendChar(&hi2c4, '1');
+		//LCD_sendChar(&hi2c4, '1');
 	}
 	else
 	{
-		LCD_sendChar(&hi2c4, ' ');
+		//LCD_sendChar(&hi2c4, ' ');
 		if (isButtonOneDown) 	buttonOneUp();
 	}
 
@@ -273,24 +295,24 @@ int main(void)
 	if (!HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0))
 	{
 		if (!isButtonTwoDown)	buttonTwoDown();
-		LCD_sendChar(&hi2c4, '2');
+		//LCD_sendChar(&hi2c4, '2');
 	}
 	else
 	{
 
-		LCD_sendChar(&hi2c4, ' ');
+		//LCD_sendChar(&hi2c4, ' ');
 		if (isButtonTwoDown)	buttonTwoUp();
 	}
 
 	//P button
 	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_11))
 	{
-		LCD_sendChar(&hi2c4, 'P');
+		//LCD_sendChar(&hi2c4, 'P');
 		//if (!isPresetButtonDown) 	presetButtonDown();
 	}
 	else
 	{
-		LCD_sendChar(&hi2c4, ' ');
+		//LCD_sendChar(&hi2c4, ' ');
 		//if (isPresetButtonDown)		presetButtonUp();
 	}
 

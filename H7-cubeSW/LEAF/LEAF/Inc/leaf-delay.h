@@ -80,6 +80,8 @@ float       tDelayL_addTo       (tDelayL*  const, float value, uint32_t tapDelay
 float       tDelayL_tick        (tDelayL*  const, float sample);
 float       tDelayL_getLastOut  (tDelayL*  const);
 float       tDelayL_getLastIn   (tDelayL*  const);
+void   tDelayL_tickIn (tDelayL* const d, float input);
+float   tDelayL_tickOut (tDelayL* const d);
 
 // ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
