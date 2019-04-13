@@ -904,6 +904,50 @@ int     tFBleveller_setTargetLevel   (tFBleveller* const p, float TargetLevel)
 {
 	p->targetLevel=TargetLevel;
 }
+
+///Reed Table model
+//default values from STK are 0.6 offset and -0.8 slope
+
+void    tReedTable_init      (tReedTable* const p, float offset, float slope)
+{
+	p->offset = offset;
+	p->slope = slope;
+}
+
+void    tReedTable_free      (tReedTable* const p)
+{
+	;
+}
+
+float   tReedTable_tick      (tReedTable* const p, float input)
+{
+	// The input is differential pressure across the reed.
+	float output = p->offset + (p->slope * input);
+
+	// If output is > 1, the reed has slammed shut and the
+	// reflection function value saturates at 1.0.
+	if ( output > 1.0f) output = 1.0f;
+
+	// This is nearly impossible in a physical system, but
+	// a reflection function value of -1.0 corresponds to
+	// an open end (and no discontinuity in bore profile).
+	if ( output < -1.0f) output = -1.0f;
+
+	return output;
+}
+
+void     tReedTable_setOffset   (tReedTable* const p, float offset)
+{
+	p->offset = offset;
+}
+
+void     tReedTable_setSlope   (tReedTable* const p, float slope)
+{
+	p->slope = slope;
+}
+
+
+
 /* Simple Living String*/
 
 void    tSimpleLivingString_init(tSimpleLivingString* const p, float freq, float dampFreq, float decay, float targetLev, float levSmoothFactor, float levStrength, int levMode)

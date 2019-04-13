@@ -356,7 +356,7 @@ float audioTickFeedbackL(float audioIn)
 
 
 	//sample = audioIn * testVal * 30.0f;
-	sample = tHighpass_tick(&dcBlock, sample * 2.0f);
+	//sample = tHighpass_tick(&dcBlock, sample * 2.0f);
 
 	tFBleveller_setTargetLevel(&leveller, testVal * rampedBreath);
 
@@ -436,6 +436,11 @@ float audioTickFeedbackL(float audioIn)
 	//sample *= tHighpass_tick(&breathMicHP, Rin * 1.0f);
 	//sample = 	tCycle_tick(&sine) * testVal;
 		sample *= 1.0f;
+		float crushVal = (tRamp_tick(&adc[ADCJoyX]));
+		tCrusher_setQuality(&crush, crushVal);
+		tCrusher_setRound(&crush, crushVal);
+		tCrusher_setSamplingRatio(&crush, crushVal);
+		sample = tCrusher_tick(&crush, sample);
 		//sample = audioTickSynthL(sample) * 0.5f;
 		sample *= rampedBreath;
 	sample = 	LEAF_clip(-1.0f, sample, 1.0f);
@@ -482,7 +487,7 @@ float audioTickSynthL(float audioIn)
 
 	//sample = audioIn;
 
-	float myFreq = intPeak;
+	float myFreq = floatPeak;
 
 	//tSawtooth_setFreq(&osc, myFreq);
 
@@ -494,6 +499,11 @@ float audioTickSynthL(float audioIn)
 	tSimpleLivingString_setDampFreq(&string, testVal * 6000.0f + 50.0f);
 	tSimpleLivingString_setFreq(&string, myFreq);
 	sample = (tSimpleLivingString_tick(&string, Rin * 0.1f));
+	float crushVal = (tRamp_tick(&adc[ADCJoyX]));
+	tCrusher_setQuality(&crush, crushVal);
+	tCrusher_setRound(&crush, crushVal);
+	tCrusher_setSamplingRatio(&crush, crushVal);
+	sample = tCrusher_tick(&crush, sample);
 	sample = tHighpass_tick(&dcBlock, (sample * .9f) + (Rin * 0.1f));
 	return sample;
 }
@@ -561,7 +571,7 @@ static void calculatePeaks(void)
 {
 	slideLengthPostRamp = tRamp_tick(&slideRamp);
 	float x = 12.0f * logf(slideLengthPostRamp / fundamental_m) * INV_LOG2;
-	fundamental = (fundamental_hz * 0.5f) * powf(2.0f, (-x * INV_TWELVE));
+	fundamental = (fundamental_hz * 1.0f) * powf(2.0f, (-x * INV_TWELVE));
 
 	floatHarmonic = tRamp_tick(&adc[ADCJoyY]) * 2.0f - 1.0f;
 	floatHarmonic = (floatHarmonic < 0.0f) ? 1.0f : (floatHarmonic * NUM_HARMONICS + 1.0f);

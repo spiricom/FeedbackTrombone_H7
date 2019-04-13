@@ -101,13 +101,26 @@ typedef struct _tPwrFollow {
 
 void    tPwrFollow_init      (tPwrFollow* const, float factor);
 void    tPwrFollow_free      (tPwrFollow* const);
-
 float   tPwrFollow_tick      (tPwrFollow* const, float input);
 float   tPwrFollow_sample    (tPwrFollow* const);
 int     tPwrFollow_setFactor   (tPwrFollow* const, float factor);
 
 // ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~
 
+//Reed Table - borrowed from STK
+typedef struct _tReedTable {
+    float offset, slope;
+} tReedTable;
+
+void    tReedTable_init      (tReedTable* const, float offset, float slope);
+void    tReedTable_free      (tReedTable* const);
+float   tReedTable_tick      (tReedTable* const, float input);
+void     tReedTable_setOffset   (tReedTable* const, float offset);
+void     tReedTable_setSlope (tReedTable* const, float slope);
+
+
+
+///
 /* Feedback leveller */
 // An auto VCA that you put into a feedback circuit to make it stay at the same level.
 // It can enforce level bidirectionally (amplifying and attenuating as needed) or
