@@ -65,6 +65,7 @@
 #include "audiostream.h"
 #include "lcd.h"
 #include "vl53L1_platform.h"
+#include "leaf.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/

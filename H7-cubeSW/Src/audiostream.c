@@ -2,6 +2,7 @@
 #include "audiostream.h"
 #include "main.h"
 #include "codec.h"
+#include "leaf.h"
 
 #define ADCJoyY 0
 #define ADCJoyX 1
@@ -13,7 +14,7 @@
 
 #define NUM_HARMONICS 16.0f
 
-#define ACOUSTIC_DELAY				132
+#define ACOUSTIC_DELAY				132 //caluclate new acoustic delay if the plastic tube length changes
 
 #define NUM_BANDPASSES 100
 
