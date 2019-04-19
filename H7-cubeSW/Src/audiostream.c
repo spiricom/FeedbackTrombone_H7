@@ -386,8 +386,6 @@ float audioTickFeedbackL(float audioIn)
 	calculatePeaks();
 	sample = Lin;
 
-
-
 	//tCycle_setFreq(&sine, tRamp_tick(&adc[ADCSlide]) + 50.0f);
 
 	//testVal = LEAF_clip(0.0, ((tRamp_tick(&adc[ADCKnob]) * 1.2f) - .1f), 1.0f);
@@ -424,9 +422,6 @@ float audioTickFeedbackL(float audioIn)
 
 		testVal = LEAF_clip(0.0, ((tRamp_tick(&adc[ADCKnob]) * 1.2f) - .1f), 1.0f);
 
-		sample = tFBleveller_tick(&leveller, sample * 0.8f);
-		sample = tOversampler2x_tick(&over2, sample, tanhf);
-
 		//interpolate position of floatHarmonic into bandpass array
 		int intPartH = (int)floatHarmonic;
 		float floatPartH = floatHarmonic - (float)intPartH;
@@ -449,6 +444,9 @@ float audioTickFeedbackL(float audioIn)
 			tDelayL_setDelay(&correctionDelays[i], tRamp_tick(&correctionRamps[i]));
 			sample = tDelayL_tick(&correctionDelays[i], sample);
 		}
+
+		sample = tFBleveller_tick(&leveller, sample * 0.8f);
+		sample = tOversampler2x_tick(&over2, sample, tanhf);
 
 	}
 
@@ -523,10 +521,16 @@ float audioTickFeedbackL(float audioIn)
 	{
 		//sample = audioIn;
 	}
+
 	if (footSwitch2)
 	{
-		//sample = Rin;
+		sample = tCrusher_tick(&crush, sample);
+		float crushVal = (tRamp_tick(&adc[ADCJoyX]));
+		tCrusher_setQuality(&crush, crushVal);
+		tCrusher_setRound(&crush, crushVal);
+		tCrusher_setSamplingRatio(&crush, crushVal);
 	}
+
 	return sample;
 
 }
@@ -545,7 +549,6 @@ float audioTickSynthL(float audioIn)
 {
 
 	sample = 0.0f;
-
 
 	float pedal = tRamp_tick(&adc[ADCPedal]);
 	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
@@ -582,16 +585,16 @@ float audioTickSynthL(float audioIn)
 	tSimpleLivingString_setFreq(&string, myFreq);
 	sample = (tSimpleLivingString_tick(&string, Rin * 0.1f));
 
-	float crushVal = (tRamp_tick(&adc[ADCJoyX]));
-	tCrusher_setQuality(&crush, crushVal);
-	tCrusher_setRound(&crush, crushVal);
-	tCrusher_setSamplingRatio(&crush, crushVal);
-
-	sample = tOversampler2x_tick(&over2, sample * 1.1f, LEAF_shaper); //is this working properly?
 	if (footSwitch2)
 	{
 		sample = tCrusher_tick(&crush, sample);
+		float crushVal = (tRamp_tick(&adc[ADCJoyX]));
+		tCrusher_setQuality(&crush, crushVal);
+		tCrusher_setRound(&crush, crushVal);
+		tCrusher_setSamplingRatio(&crush, crushVal);
 	}
+	sample = tOversampler2x_tick(&over2, sample * 1.1f, LEAF_shaper); //is this working properly?
+
 	sample = tHighpass_tick(&dcBlock, (sample * .9f) + (Rin * 0.1f));
 	return sample;
 }
