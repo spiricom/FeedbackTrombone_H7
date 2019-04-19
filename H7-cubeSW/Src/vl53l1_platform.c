@@ -201,7 +201,7 @@ VL53L1_Error VL53L1_WrDWord(VL53L1_DEV Dev, uint16_t index, uint32_t data) {
 
 VL53L1_Error VL53L1_UpdateByte(VL53L1_DEV Dev, uint16_t index, uint8_t AndData, uint8_t OrData) {
     VL53L1_Error Status = VL53L1_ERROR_NONE;
-    uint8_t data;
+    uint8_t data = 0;
 
     Status = VL53L1_RdByte(Dev, index, &data);
     if (Status) {

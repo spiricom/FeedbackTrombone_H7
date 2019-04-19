@@ -65,6 +65,7 @@
 #include "audiostream.h"
 #include "lcd.h"
 #include "vl53L1_platform.h"
+#include "VL53L1X_api.h"
 #include "leaf.h"
 /* USER CODE END Includes */
 
@@ -202,7 +203,7 @@ int main(void)
 		Error_Handler();
 
 	}
-	audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, &hrng, ((uint16_t*)&myADC));
+	audioInit(&hi2c2, &hsai_BlockA1, &hsai_BlockB1, ((uint16_t*)&myADC));
 
 	HAL_Delay(100);
 	LCD_init(&hi2c4);
@@ -255,7 +256,7 @@ int main(void)
 	  // [4] = pedal
 	  // [5] = knob
   	 status = VL53L1X_GetDistance(dev, &Distance);
-/*
+
 	 HAL_Delay(10);
 	 LCD_home(&hi2c4);
 
@@ -277,9 +278,15 @@ int main(void)
 
 	 LCD_setCursor(&hi2c4, 0x40);
 
-	 LCD_sendInteger(&hi2c4, myADC[3], 6);
-	 */
+	 //LCD_sendInteger(&hi2c4, myADC[3], 6);
+	 LCD_sendChar(&hi2c4, ' ');
 
+	 LCD_sendInteger(&hi2c4, footSwitch1, 1);
+	 LCD_sendChar(&hi2c4, ' ');
+	 LCD_sendInteger(&hi2c4, footSwitch2, 1);
+
+	 LCD_sendChar(&hi2c4, ' ');
+	 LCD_sendFixedFloat(&hi2c4, fundamental, 4, 2);
 	 //button1
 	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_13))
 	{

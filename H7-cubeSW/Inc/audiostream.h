@@ -33,7 +33,7 @@
 
 #include "leaf.h"
 
-#define AUDIO_FRAME_SIZE     32
+#define AUDIO_FRAME_SIZE     64
 #define HALF_BUFFER_SIZE      AUDIO_FRAME_SIZE * 2 //number of samples per half of the "double-buffer" (twice the audio frame size because there are interleaved samples for both left and right channels)
 #define AUDIO_BUFFER_SIZE     AUDIO_FRAME_SIZE * 4 //number of samples in the whole data structure (four times the audio frame size because of stereo and also double-buffering/ping-ponging)
 
@@ -82,6 +82,7 @@ extern uint16_t Distance;
 
 extern float intHarmonic;
 extern float floatHarmonic;
+
 extern float fundamental;
 extern float customFundamental;
 
@@ -109,6 +110,8 @@ extern float slideLengthPreRamp;
 extern float slideLengthPostRamp;
 extern float Q;
 extern float dist;
+extern int footSwitch1;
+extern int footSwitch2;
 
 extern float valPerM;
 extern float mPerVal;
@@ -126,7 +129,7 @@ extern float mPerVal;
 
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions ------------------------------------------------------- */
-void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTypeDef* hsaiIn, RNG_HandleTypeDef* hrandom, uint16_t* myADCArray);
+void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTypeDef* hsaiIn, uint16_t* myADCArray);
 
 void audioFrame(uint16_t buffer_offset);
 

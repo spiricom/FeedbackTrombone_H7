@@ -4,6 +4,24 @@
 #include "codec.h"
 #include "leaf.h"
 
+
+
+/// TODO:
+/// add display of important data, but be careful about when to send (only send on changes to avoid extra noise)
+/// button p sets sample-and-hold breath pressure
+/// button 1 changes mode
+/// button 2 sends pressure mic into output??
+/// do something with foot pedal in (now that it's fixed -- there was an accidental solder bridge connecting the pedal input to the mic input)
+/// knob controls filter crossfade time on feedback mode, and lowpass on string mode
+/// split joystick into quadrants
+/// sampling insanity
+/// possibly create algorithm to only change harmonics when joyY velocity is low (to avoid glissandos)
+/// subharmonic series on JoyY up?
+/// joyX on feedback mode controls Q or sampler? or maybe Q on foot pedal?
+/// should harmonics be stepped in feedback mode or floating point?
+/// what should the foot switch pedals do?  bit crush? add more strings?
+
+
 #define ADCJoyY 0
 #define ADCJoyX 1
 #define ADCBreath 2
@@ -12,11 +30,15 @@
 #define ADCSlide 5
 
 
-#define NUM_HARMONICS 16.0f
+#define NUM_HARMONICS 17.0f
 
-#define ACOUSTIC_DELAY				132 //caluclate new acoustic delay if the plastic tube length changes
+//#define ACOUSTIC_DELAY				132 //caluclate new acoustic delay if the plastic tube length changes
 
-#define NUM_BANDPASSES 100
+#define ACOUSTIC_DELAY 313 //new tube
+
+//#define ACOUSTIC_DELAY 73.f
+
+#define NUM_BANDPASSES 33
 
 
 // align is to make sure they are lined up with the data boundaries of the cache 
@@ -34,21 +56,19 @@ float buffer1[SAMPLE_BUFFER_SIZE] __ATTR_RAM_D2;
 float buffer2[SAMPLE_BUFFER_SIZE] __ATTR_RAM_D2;
 float sample = 0.0f;
 
-float fundamental_hz = 58.27;
+float fundamental_hz = 58.27f;
 float fundamental_cm;
 float fundamental_m = 2.943195469366741f;
 float inv_fundamental_m;
 float cutoff_offset;
 long long click_counter = 0;
+float finalPeak = 1.0f;
 
 tSVF bandPasses[NUM_BANDPASSES];
 
 tDelayL delay;
 
 uint16_t Distance;
-
-#define CROSSFADE_SAMPLES 32
-
 
 const int SYSTEM_DELAY = 2*AUDIO_FRAME_SIZE + ACOUSTIC_DELAY;
 
@@ -77,6 +97,7 @@ tCycle sine;
 tRamp qRamp;
 
 tRamp correctionRamp;
+tRamp correctionRamps[NUM_BANDPASSES];
 tDelayL correctionDelay;
 
 tCompressor compressor;
@@ -92,6 +113,10 @@ tPwrFollow follow;
 
 tSimpleLivingString string;
 
+tOversampler2x over2;
+
+tExpSmooth bandPassGains[NUM_BANDPASSES];
+tDelayL correctionDelays[NUM_BANDPASSES];
 
 float breath_baseline = 0.0f;
 float breath_mult = 0.0f;
@@ -99,7 +124,8 @@ float testVal = 0.0f;
 uint16_t knobValue;
 
 uint16_t slideValue;
-
+int footSwitch1 = 0;
+int footSwitch2 = 0;
 float slideLengthDiff = 0;
 float slideLength = 0;
 
@@ -108,7 +134,6 @@ float customFundamental = 48.9994294977f;
 float position = 0.f;
 float firstPositionValue = 0.f;
 
-
 float harmonicHysteresis = 0.6f;
 
 
@@ -116,6 +141,7 @@ float knobValueToUse = 0.0f;
 
 float floatHarmonic, floatPeak, intPeak, mix;
 float intHarmonic;
+float joyYup = 0;
 
 int flip = 1;
 int envTimeout;
@@ -167,7 +193,7 @@ static int additionalDelay(float Tfreq);
 
 
 
-void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTypeDef* hsaiIn, RNG_HandleTypeDef* hrand, uint16_t* myADCArray)
+void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTypeDef* hsaiIn, uint16_t* myADCArray)
 { 
 	// Initialize the audio library.
 	LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, &randomNumber);
@@ -186,13 +212,16 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	tSawtooth_setFreq(&osc, 200.f);
 
 	tHighpass_init(&breathMicHP, 500.0f);
-	tFBleveller_init(&leveller, 0.0f, 0.01f, 0.01f, 1);
+	tFBleveller_init(&leveller, 0.0f, 0.001f, 0.06f, 1);
 	tPwrFollow_init(&follow, .06f);
-	tSimpleLivingString_init(&string, 440.0f, 9000.0f, 100.0f, 0.0f, 0.01f, 0.2f, 1);
+	tSimpleLivingString_init(&string, 440.0f, 9000.0f, 0.95f, 0.01f, 0.01f, 0.2f, 1);
 
 	for (int i = 0; i < NUM_BANDPASSES; i++)
 	{
-		tSVF_init(&bandPasses[i], SVFTypeBandpass, ((randomNumber() + 1.0f) * 5000.0f) + 40.0f, 500.0f);
+		tSVF_init(&bandPasses[i], SVFTypeBandpass, ((randomNumber() + 1.0f) * 5000.0f) + 40.0f, 200.0f);
+		tExpSmooth_init(&bandPassGains[i], 0.0f, 0.001f);
+		tDelayL_init(&correctionDelays[i], 20000.0f, 40000.0f);
+		tDelayL_setDelay (&correctionDelays[i], 20000.0f);
 	}
 
 	tDelayL_init(&delay, 20000.0f, 40000.0f);
@@ -200,8 +229,9 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	tRamp_init(&correctionRamp, 10, 1);
 	// 16000 was max delay length in OOPS, can change this once we start using this with the fbt
 	tDelayL_init(&correctionDelay, 0, 16000);
+	tOversampler2x_init(&over2);
 
-	tHighpass_init(&dcBlock, 100.0f);
+	tHighpass_init(&dcBlock, 20.0f);
 	tRamp_init(&qRamp, 10, 1);
 
 	tRamp_init(&adc[ADCJoyY], 5, 1);
@@ -264,12 +294,16 @@ uint32_t loopLength = 1000;
 uint32_t phasor = 0;
 
 
+
 void audioFrame(uint16_t buffer_offset)
 {
 	uint16_t i = 0;
 	int32_t current_sample = 0;
 
-
+	for(int i = 0; i < 17; i++)
+	{
+		tSVF_setFreq(&bandPasses[i], fundamental * (float)i);
+	}
 	tRamp_setDest(&adc[ADCPedal], (adcVals[ADCPedal] * INV_TWO_TO_16));
 	tRamp_setDest(&adc[ADCKnob], (adcVals[ADCKnob] * INV_TWO_TO_16));
 	tRamp_setDest(&adc[ADCJoyY], 1.0f - ((adcVals[ADCJoyY] * INV_TWO_TO_16) - 0.366f) * 3.816f);
@@ -277,6 +311,9 @@ void audioFrame(uint16_t buffer_offset)
 	tRamp_setDest(&adc[ADCSlide], (float)Distance);
 
 	position = tRamp_tick(&adc[ADCSlide]);
+
+	footSwitch1 = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_7);
+	footSwitch2 = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_9);
 
 	//slideLengthDiff = (position - firstPositionValue) * mPerVal * slide_tune;
 	//slideLengthM = (position - firstPositionValue) * mPerVal;
@@ -290,11 +327,11 @@ void audioFrame(uint16_t buffer_offset)
 		{
 			if ((i & 1) == 0)
 			{
-				current_sample = (int32_t)(audioTickFeedbackR((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+				current_sample = (int32_t)(audioTickFeedbackR( (((float)audioInBuffer[buffer_offset + i]) * INV_TWO_TO_31)) * TWO_TO_31);
 			}
 			else
 			{
-				current_sample = (int32_t)(audioTickFeedbackL((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+				current_sample = (int32_t)(audioTickFeedbackL( (((float)audioInBuffer[buffer_offset + i]) * INV_TWO_TO_31)) * TWO_TO_31);
 			}
 
 			audioOutBuffer[buffer_offset + i] = current_sample;
@@ -307,11 +344,11 @@ void audioFrame(uint16_t buffer_offset)
 		{
 			if ((i & 1) == 0)
 			{
-				current_sample = (int32_t)(audioTickSynthR((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+				current_sample = (int32_t)(audioTickSynthR( (((float)audioInBuffer[buffer_offset + i]) * INV_TWO_TO_31)) * TWO_TO_31);
 			}
 			else
 			{
-				current_sample = (int32_t)(audioTickSynthL((float) (audioInBuffer[buffer_offset + i] * INV_TWO_TO_31)) * TWO_TO_31);
+				current_sample = (int32_t)(audioTickSynthL( (((float)audioInBuffer[buffer_offset + i]) * INV_TWO_TO_31)) * TWO_TO_31);
 			}
 
 			audioOutBuffer[buffer_offset + i] = current_sample;
@@ -347,37 +384,73 @@ float audioTickFeedbackL(float audioIn)
 	//sample = tSawtooth_tick(&osc) * rampedBreath;
 
 	calculatePeaks();
-
-
 	sample = Lin;
+
+
 
 	//tCycle_setFreq(&sine, tRamp_tick(&adc[ADCSlide]) + 50.0f);
 
-	testVal = LEAF_clip(0.0, ((tRamp_tick(&adc[ADCKnob]) * 1.2f) - .1f), 1.0f);
+	//testVal = LEAF_clip(0.0, ((tRamp_tick(&adc[ADCKnob]) * 1.2f) - .1f), 1.0f);
 
 
 	//sample = audioIn * testVal * 30.0f;
 	//sample = tHighpass_tick(&dcBlock, sample * 2.0f);
 
-	tFBleveller_setTargetLevel(&leveller, testVal * rampedBreath);
+	tFBleveller_setTargetLevel(&leveller, rampedBreath);
 
 	sample = LEAF_softClip(sample * testVal * rampedBreath, .6f);
 	float myQ = LEAF_clip(0.75f, ((tRamp_tick(&adc[ADCJoyX]) * 10.0f) + 0.5f), 10.0f);
-	tSVF_setQ(&filter1, myQ);
-	tSVF_setFreq(&filter1, floatPeak);
-	sample = tSVF_tick(&filter1, sample);
-	sample = tFBleveller_tick(&leveller, sample);
+
+	if (!footSwitch1)
+	{
+		tSVF_setQ(&filter1, myQ);
+		tSVF_setFreq(&filter1, floatPeak);
+		sample = tSVF_tick(&filter1, sample);
+		sample = tFBleveller_tick(&leveller, sample);
 
 
-
-	// Delay correction
-		newTestDelay = (float) additionalDelay(intPeak) + 3.0f;//+ (pedal * 16.0f);// + delayValueCorrection(slideLengthM);
+		// Delay correction
+		newTestDelay = (float) additionalDelay(finalPeak);//+ (pedal * 16.0f);// + delayValueCorrection(slideLengthM);
 		tRamp_setDest(&correctionRamp, newTestDelay);
 
 		tDelayL_setDelay(&correctionDelay, tRamp_tick(&correctionRamp));
 
 		sample = tDelayL_tick(&correctionDelay, sample);
+	}
+	else
+	{
+		float tempSamp = sample;
+		sample = 0.0f;
 
+		testVal = LEAF_clip(0.0, ((tRamp_tick(&adc[ADCKnob]) * 1.2f) - .1f), 1.0f);
+
+		sample = tFBleveller_tick(&leveller, sample * 0.8f);
+		sample = tOversampler2x_tick(&over2, sample, tanhf);
+
+		//interpolate position of floatHarmonic into bandpass array
+		int intPartH = (int)floatHarmonic;
+		float floatPartH = floatHarmonic - (float)intPartH;
+		testVal = LEAF_clip(0.0, ((tRamp_tick(&adc[ADCKnob]) * 1.2f) - .1f), 1.0f);
+		for (int i = 0; i < 17; i++)
+		{
+			tExpSmooth_setDest(&bandPassGains[i], 0.0f);
+			tExpSmooth_setFactor(&bandPassGains[i], (1.0f - testVal) * 0.06f);
+		}
+		tExpSmooth_setDest(&bandPassGains[intPartH], floatPartH);
+		tExpSmooth_setDest(&bandPassGains[intPartH+1], (1.0f -floatPartH));
+
+
+		for(int i = 0; i < 17; i++)
+		{
+
+			sample += tSVF_tick(&bandPasses[i], tempSamp) * tExpSmooth_tick(&bandPassGains[i]);
+			float newTempTestDelay = (float) additionalDelay(fundamental * (float)i);//+ (pedal * 16.0f);// + delayValueCorrection(slideLengthM);
+			tRamp_setDest(&correctionRamps[i], newTempTestDelay);
+			tDelayL_setDelay(&correctionDelays[i], tRamp_tick(&correctionRamps[i]));
+			sample = tDelayL_tick(&correctionDelays[i], sample);
+		}
+
+	}
 
 	/*
 	sample = 0.0f;
@@ -436,16 +509,24 @@ float audioTickFeedbackL(float audioIn)
 	//sample *= 0.9f;
 	//sample *= tHighpass_tick(&breathMicHP, Rin * 1.0f);
 	//sample = 	tCycle_tick(&sine) * testVal;
-		sample *= 1.0f;
-		float crushVal = (tRamp_tick(&adc[ADCJoyX]));
-		tCrusher_setQuality(&crush, crushVal);
-		tCrusher_setRound(&crush, crushVal);
-		tCrusher_setSamplingRatio(&crush, crushVal);
-		sample = tCrusher_tick(&crush, sample);
-		//sample = audioTickSynthL(sample) * 0.5f;
-		sample *= rampedBreath;
+	//sample *= 1.0f;
+	//float crushVal = (tRamp_tick(&adc[ADCJoyX]));
+	//tCrusher_setQuality(&crush, crushVal);
+	//tCrusher_setRound(&crush, crushVal);
+	//tCrusher_setSamplingRatio(&crush, crushVal);
+	//sample = tCrusher_tick(&crush, sample);
+	//sample = audioTickSynthL(sample) * 0.5f;
+	sample *= rampedBreath;
 	sample = 	LEAF_clip(-1.0f, sample, 1.0f);
 
+	if (footSwitch1)
+	{
+		//sample = audioIn;
+	}
+	if (footSwitch2)
+	{
+		//sample = Rin;
+	}
 	return sample;
 
 }
@@ -488,7 +569,7 @@ float audioTickSynthL(float audioIn)
 
 	//sample = audioIn;
 
-	float myFreq = floatPeak;
+	float myFreq = intPeak;
 
 	//tSawtooth_setFreq(&osc, myFreq);
 
@@ -500,11 +581,17 @@ float audioTickSynthL(float audioIn)
 	tSimpleLivingString_setDampFreq(&string, testVal * 6000.0f + 50.0f);
 	tSimpleLivingString_setFreq(&string, myFreq);
 	sample = (tSimpleLivingString_tick(&string, Rin * 0.1f));
+
 	float crushVal = (tRamp_tick(&adc[ADCJoyX]));
 	tCrusher_setQuality(&crush, crushVal);
 	tCrusher_setRound(&crush, crushVal);
 	tCrusher_setSamplingRatio(&crush, crushVal);
-	sample = tCrusher_tick(&crush, sample);
+
+	sample = tOversampler2x_tick(&over2, sample * 1.1f, LEAF_shaper); //is this working properly?
+	if (footSwitch2)
+	{
+		sample = tCrusher_tick(&crush, sample);
+	}
 	sample = tHighpass_tick(&dcBlock, (sample * .9f) + (Rin * 0.1f));
 	return sample;
 }
@@ -568,6 +655,7 @@ void metering(float audioIn)
 }
 
 
+
 static void calculatePeaks(void)
 {
 	slideLengthPostRamp = tRamp_tick(&slideRamp);
@@ -575,15 +663,37 @@ static void calculatePeaks(void)
 	fundamental = (fundamental_hz * 1.0f) * powf(2.0f, (-x * INV_TWELVE));
 
 	floatHarmonic = tRamp_tick(&adc[ADCJoyY]) * 2.0f - 1.0f;
-	floatHarmonic = (floatHarmonic < 0.0f) ? 1.0f : (floatHarmonic * NUM_HARMONICS + 1.0f);
-
+	if (floatHarmonic > 0.1f)
+	{
+		floatHarmonic = ((floatHarmonic * NUM_HARMONICS) + 1.0f);
+		joyYup = 0;
+	}
+	else if (floatHarmonic < -0.1f)
+	{
+		floatHarmonic = ((-1.0f * floatHarmonic * NUM_HARMONICS) + 1.0f);
+		joyYup = 1;
+	}
+	else
+	{
+		floatHarmonic = 1.0f;
+		joyYup = 0;
+	}
 	if (((floatHarmonic - intHarmonic) > (harmonicHysteresis)) || ((floatHarmonic - intHarmonic) < ( -1.0f * harmonicHysteresis)))
 	{
 		intHarmonic = (uint16_t) (floatHarmonic + 0.5f);
 	}
-
 	floatPeak = fundamental * floatHarmonic * octaveTransp[octave];
 	intPeak = fundamental * intHarmonic * octaveTransp[octave];
+	if (joyYup)
+	{
+		finalPeak = floatPeak;
+	}
+	else
+	{
+		finalPeak = intPeak;
+	}
+
+
 }
 
 float delayCor[8][16] = {{0.0f, 0.0f, 43.0f, 56.0f, 48.0f, 32.0f, 18.0f, 26.0f, 23.0f, 14.0f, 11.0f, 5.0f, 1.0f, 0.0f, 0.0f, 7.0f},
@@ -608,8 +718,8 @@ static float delayValCor(uint8_t slidePosInd, float slidePos){
 
 //calculates first index in slidePositions[] that is past the current slide position and passes into delayValCor to return the correct delay value
 static float delayValueCorrection(float slidePos){
-    uint8_t i = 0;
-    for(i; i < 8; i++){
+
+    for(uint8_t i = 0; i < 8; i++){
         if(slidePos < slidePositions[i]){
             return delayValCor(i, slidePos);
         }
@@ -619,7 +729,7 @@ static float delayValueCorrection(float slidePos){
 
 static int additionalDelay(float Tfreq)
 {
-	int period_in_samples = (SAMPLE_RATE / Tfreq);
+	int32_t period_in_samples = (int32_t)(roundf(SAMPLE_RATE / Tfreq));
 	return (period_in_samples - (SYSTEM_DELAY % period_in_samples));
 }
 
