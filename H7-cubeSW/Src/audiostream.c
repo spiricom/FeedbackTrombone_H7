@@ -38,7 +38,7 @@
 
 //#define ACOUSTIC_DELAY 73.f
 
-#define NUM_BANDPASSES 33
+#define NUM_BANDPASSES 17
 
 
 // align is to make sure they are lined up with the data boundaries of the cache 
@@ -214,7 +214,7 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	tHighpass_init(&breathMicHP, 500.0f);
 	tFBleveller_init(&leveller, 0.0f, 0.001f, 0.06f, 1);
 	tPwrFollow_init(&follow, .06f);
-	tSimpleLivingString_init(&string, 440.0f, 9000.0f, 0.95f, 0.01f, 0.01f, 0.2f, 1);
+	tSimpleLivingString_init(&string, 440.0f, 9000.0f, 0.999f, 0.01f, 0.01f, 0.2f, 1);
 
 	for (int i = 0; i < NUM_BANDPASSES; i++)
 	{
@@ -429,7 +429,7 @@ float audioTickFeedbackL(float audioIn)
 		for (int i = 0; i < 17; i++)
 		{
 			tExpSmooth_setDest(&bandPassGains[i], 0.0f);
-			tExpSmooth_setFactor(&bandPassGains[i], (1.0f - testVal) * 0.06f);
+			//tExpSmooth_setFactor(&bandPassGains[i], (1.0f - testVal) * 0.3f);
 		}
 		tExpSmooth_setDest(&bandPassGains[intPartH], floatPartH);
 		tExpSmooth_setDest(&bandPassGains[intPartH+1], (1.0f -floatPartH));
@@ -437,15 +437,14 @@ float audioTickFeedbackL(float audioIn)
 
 		for(int i = 0; i < 17; i++)
 		{
-
 			sample += tSVF_tick(&bandPasses[i], tempSamp) * tExpSmooth_tick(&bandPassGains[i]);
 			float newTempTestDelay = (float) additionalDelay(fundamental * (float)i);//+ (pedal * 16.0f);// + delayValueCorrection(slideLengthM);
 			tRamp_setDest(&correctionRamps[i], newTempTestDelay);
-			tDelayL_setDelay(&correctionDelays[i], tRamp_tick(&correctionRamps[i]));
-			sample = tDelayL_tick(&correctionDelays[i], sample);
+			//tDelayL_setDelay(&correctionDelays[i], tRamp_tick(&correctionRamps[i]));
+			//sample = tDelayL_tick(&correctionDelays[i], sample);
 		}
 
-		sample = tFBleveller_tick(&leveller, sample * 0.8f);
+		sample = tFBleveller_tick(&leveller, sample * 0.6f);
 		sample = tOversampler2x_tick(&over2, sample, tanhf);
 
 	}
@@ -526,7 +525,7 @@ float audioTickFeedbackL(float audioIn)
 	{
 		sample = tCrusher_tick(&crush, sample);
 		float crushVal = (tRamp_tick(&adc[ADCJoyX]));
-		tCrusher_setQuality(&crush, crushVal);
+		tCrusher_setQuality(&crush, (tRamp_tick(&adc[ADCPedal])));
 		tCrusher_setRound(&crush, crushVal);
 		tCrusher_setSamplingRatio(&crush, crushVal);
 	}
@@ -572,7 +571,7 @@ float audioTickSynthL(float audioIn)
 
 	//sample = audioIn;
 
-	float myFreq = intPeak;
+	float myFreq = finalPeak;
 
 	//tSawtooth_setFreq(&osc, myFreq);
 
@@ -583,19 +582,20 @@ float audioTickSynthL(float audioIn)
 	tSimpleLivingString_setTargetLev(&string, rampedBreath);
 	tSimpleLivingString_setDampFreq(&string, testVal * 6000.0f + 50.0f);
 	tSimpleLivingString_setFreq(&string, myFreq);
-	sample = (tSimpleLivingString_tick(&string, Rin * 0.1f));
+	sample = (tSimpleLivingString_tick(&string, Rin * 0.5f * rampedBreath))* rampedBreath;
+
 
 	if (footSwitch2)
 	{
 		sample = tCrusher_tick(&crush, sample);
 		float crushVal = (tRamp_tick(&adc[ADCJoyX]));
-		tCrusher_setQuality(&crush, crushVal);
+		tCrusher_setQuality(&crush, tRamp_tick(&adc[ADCPedal]));
 		tCrusher_setRound(&crush, crushVal);
 		tCrusher_setSamplingRatio(&crush, crushVal);
 	}
-	sample = tOversampler2x_tick(&over2, sample * 1.1f, LEAF_shaper); //is this working properly?
+	//sample = tOversampler2x_tick(&over2, sample * 1.1f, LEAF_shaper); //is this working properly?
 
-	sample = tHighpass_tick(&dcBlock, (sample * .9f) + (Rin * 0.1f));
+	sample = tHighpass_tick(&dcBlock, (sample * .7f) + (Rin * 0.07f));
 	return sample;
 }
 
