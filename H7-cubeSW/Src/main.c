@@ -286,7 +286,10 @@ int main(void)
 	 LCD_sendInteger(&hi2c4, footSwitch2, 1);
 
 	 LCD_sendChar(&hi2c4, ' ');
-	 LCD_sendFixedFloat(&hi2c4, fundamental, 4, 2);
+	 LCD_sendFixedFloat(&hi2c4, finalPeak, 4, 2);
+
+	 LCD_sendChar(&hi2c4, ' ');
+	 LCD_sendInteger(&hi2c4, tooFast , 1);
 	 //button1
 	if (!HAL_GPIO_ReadPin(GPIOE, GPIO_PIN_13))
 	{

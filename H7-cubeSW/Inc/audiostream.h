@@ -77,9 +77,9 @@ extern float testVal;
 extern FTMode ftMode;
 extern KnobMode kMode;
 extern tRamp adc[6];
-
+extern int tooFast;
 extern uint16_t Distance;
-
+extern float finalPeak;
 extern float intHarmonic;
 extern float floatHarmonic;
 

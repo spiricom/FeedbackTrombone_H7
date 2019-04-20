@@ -55,7 +55,7 @@ uint16_t* adcVals;
 float buffer1[SAMPLE_BUFFER_SIZE] __ATTR_RAM_D2;
 float buffer2[SAMPLE_BUFFER_SIZE] __ATTR_RAM_D2;
 float sample = 0.0f;
-
+float prevfloatHarmonic = 0.0f;
 float fundamental_hz = 58.27f;
 float fundamental_cm;
 float fundamental_m = 2.943195469366741f;
@@ -118,6 +118,8 @@ tOversampler2x over2;
 tExpSmooth bandPassGains[NUM_BANDPASSES];
 tDelayL correctionDelays[NUM_BANDPASSES];
 
+tExpSmooth pitchSmoother;
+
 float breath_baseline = 0.0f;
 float breath_mult = 0.0f;
 float testVal = 0.0f;
@@ -145,6 +147,7 @@ float joyYup = 0;
 
 int flip = 1;
 int envTimeout;
+int tooFast = 0;
 
 
 FTMode ftMode = FTFeedback;
@@ -157,6 +160,9 @@ float slide_tune = 1.0f;
 
 int hysteresisKnob = 0;
 int hysteresisAmount = 512;
+
+float targettedNote = 0.0f;
+float playedNote = 0.0f;
 
 int octave = 3;
 float octaveTransp[7] = { 0.125f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f};
@@ -230,7 +236,7 @@ void audioInit(I2C_HandleTypeDef* hi2c, SAI_HandleTypeDef* hsaiOut, SAI_HandleTy
 	// 16000 was max delay length in OOPS, can change this once we start using this with the fbt
 	tDelayL_init(&correctionDelay, 0, 16000);
 	tOversampler2x_init(&over2);
-
+	tExpSmooth_init(&pitchSmoother, 220.0f, 0.05f);
 	tHighpass_init(&dcBlock, 20.0f);
 	tRamp_init(&qRamp, 10, 1);
 
@@ -576,16 +582,24 @@ float audioTickSynthL(float audioIn)
 	//sample = audioIn;
 
 	float myFreq = finalPeak;
-
+	tExpSmooth_setDest(&pitchSmoother, myFreq);
 	//tSawtooth_setFreq(&osc, myFreq);
-
+	myFreq = tExpSmooth_tick(&pitchSmoother);
 	testVal = LEAF_clip(0.0f, ((tRamp_tick(&adc[ADCKnob]) * 2.0f) - .1f), 1.0f);
 
 	//sample = (tSawtooth_tick(&osc) * testVal) * rampedBreath;
 	//sample = audioIn * testVal * 30.0f;
 	tSimpleLivingString_setTargetLev(&string, rampedBreath);
 	tSimpleLivingString_setDampFreq(&string, testVal * 6000.0f + 50.0f);
-	tSimpleLivingString_setFreq(&string, myFreq);
+
+	if (myFreq > 10.0f)
+	{
+		tSimpleLivingString_setFreq(&string, myFreq);
+	}
+	else
+	{
+		tSimpleLivingString_setFreq(&string, myFreq + 20.0f + (pedal * 10.0f));
+	}
 	sample = (tSimpleLivingString_tick(&string, Rin * 0.5f * rampedBreath))* rampedBreath;
 
 
@@ -593,9 +607,10 @@ float audioTickSynthL(float audioIn)
 	{
 		sample = tCrusher_tick(&crush, sample);
 		float crushVal = (tRamp_tick(&adc[ADCJoyX]));
-		tCrusher_setQuality(&crush, tRamp_tick(&adc[ADCPedal]));
+		tCrusher_setQuality(&crush, pedal);
 		tCrusher_setRound(&crush, crushVal);
 		tCrusher_setSamplingRatio(&crush, crushVal);
+		sample *= 3.0f;
 	}
 	//sample = tOversampler2x_tick(&over2, sample * 1.1f, LEAF_shaper); //is this working properly?
 
@@ -670,11 +685,32 @@ static void calculatePeaks(void)
 	fundamental = (fundamental_hz * 1.0f) * powf(2.0f, (-x * INV_TWELVE));
 
 	floatHarmonic = tRamp_tick(&adc[ADCJoyY]) * 2.0f - 1.0f;
-	if (floatHarmonic > 0.03f)
+
+
+
+	if ((floatHarmonic > (targettedNote + 0.0005f)))
 	{
-		floatHarmonic = ((floatHarmonic * NUM_HARMONICS) + 1.0f);
-		joyYup = 0;
+		tooFast = 1;
 	}
+	else if ((floatHarmonic < (targettedNote - 0.0005f)))
+	{
+		tooFast = 1;
+	}
+	else
+	{
+		tooFast = 0;
+	}
+	targettedNote = floatHarmonic;
+
+	if (!tooFast)
+	{
+		if (floatHarmonic > 0.03f)
+			{
+				floatHarmonic = ((floatHarmonic * NUM_HARMONICS) + 1.0f);
+				joyYup = 0;
+			}
+	}
+
 	else if (floatHarmonic < -0.03f)
 	{
 		floatHarmonic = ((-1.0f * floatHarmonic * NUM_HARMONICS) + 1.0f);
@@ -685,6 +721,7 @@ static void calculatePeaks(void)
 		floatHarmonic = 1.0f;
 		joyYup = 0;
 	}
+
 	if (((floatHarmonic - intHarmonic) > (harmonicHysteresis)) || ((floatHarmonic - intHarmonic) < ( -1.0f * harmonicHysteresis)))
 	{
 		intHarmonic = (uint16_t) (floatHarmonic + 0.5f);
