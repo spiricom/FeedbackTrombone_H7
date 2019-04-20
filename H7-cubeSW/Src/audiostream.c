@@ -304,9 +304,9 @@ void audioFrame(uint16_t buffer_offset)
 	{
 		tSVF_setFreq(&bandPasses[i], fundamental * (float)i);
 	}
-	tRamp_setDest(&adc[ADCPedal], (adcVals[ADCPedal] * INV_TWO_TO_16));
+ 	tRamp_setDest(&adc[ADCPedal], (adcVals[ADCPedal] * INV_TWO_TO_16));
 	tRamp_setDest(&adc[ADCKnob], (adcVals[ADCKnob] * INV_TWO_TO_16));
-	tRamp_setDest(&adc[ADCJoyY], 1.0f - ((adcVals[ADCJoyY] * INV_TWO_TO_16) - 0.366f) * 3.816f);
+	tRamp_setDest(&adc[ADCJoyY], (1.0f - ((adcVals[ADCJoyY] * INV_TWO_TO_16) - 0.366f) * 3.816f) +.05f);
 	tRamp_setDest(&adc[ADCJoyX], 1.0f - ((adcVals[ADCJoyX] * INV_TWO_TO_16) - 0.366f) * 3.816f);
 	tRamp_setDest(&adc[ADCSlide], (float)Distance);
 
@@ -369,6 +369,9 @@ float audioTickFeedbackL(float audioIn)
 	///float pedal = tRamp_tick(&adc[ADCPedal]);
 	//pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
 
+	float pedal = tRamp_tick(&adc[ADCPedal]);
+	pedal = LEAF_clip(0.0f, pedal - 0.05f, 1.0f);
+
 	breath = adcVals[ADCBreath];
 	breath = breath * INV_TWO_TO_16;
 	breath = breath - breath_baseline;
@@ -408,12 +411,13 @@ float audioTickFeedbackL(float audioIn)
 
 
 		// Delay correction
-		newTestDelay = (float) additionalDelay(finalPeak);//+ (pedal * 16.0f);// + delayValueCorrection(slideLengthM);
+		float newTestDelay = ((float) additionalDelay(finalPeak)) + (pedal * 64.0f);// + delayValueCorrection(slideLengthM)
 		tRamp_setDest(&correctionRamp, newTestDelay);
 
 		tDelayL_setDelay(&correctionDelay, tRamp_tick(&correctionRamp));
 
 		sample = tDelayL_tick(&correctionDelay, sample);
+		//sample = tOversampler2x_tick(&over2, sample, tanhf);
 	}
 	else
 	{
@@ -438,7 +442,7 @@ float audioTickFeedbackL(float audioIn)
 		for(int i = 0; i < 17; i++)
 		{
 			sample += tSVF_tick(&bandPasses[i], tempSamp) * tExpSmooth_tick(&bandPassGains[i]);
-			float newTempTestDelay = (float) additionalDelay(fundamental * (float)i);//+ (pedal * 16.0f);// + delayValueCorrection(slideLengthM);
+			float newTempTestDelay = (float) additionalDelay(fundamental * (float)i)+ (pedal * 64.0f);// + delayValueCorrection(slideLengthM);
 			tRamp_setDest(&correctionRamps[i], newTempTestDelay);
 			//tDelayL_setDelay(&correctionDelays[i], tRamp_tick(&correctionRamps[i]));
 			//sample = tDelayL_tick(&correctionDelays[i], sample);
@@ -666,12 +670,12 @@ static void calculatePeaks(void)
 	fundamental = (fundamental_hz * 1.0f) * powf(2.0f, (-x * INV_TWELVE));
 
 	floatHarmonic = tRamp_tick(&adc[ADCJoyY]) * 2.0f - 1.0f;
-	if (floatHarmonic > 0.1f)
+	if (floatHarmonic > 0.03f)
 	{
 		floatHarmonic = ((floatHarmonic * NUM_HARMONICS) + 1.0f);
 		joyYup = 0;
 	}
-	else if (floatHarmonic < -0.1f)
+	else if (floatHarmonic < -0.03f)
 	{
 		floatHarmonic = ((-1.0f * floatHarmonic * NUM_HARMONICS) + 1.0f);
 		joyYup = 1;
